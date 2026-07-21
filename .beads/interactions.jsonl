@@ -1,0 +1,1 @@
+{"id":"int-e08d46999e8331312e992b94bb8aaf1c","kind":"field_change","created_at":"2026-07-21T16:35:52.412968411Z","actor":"hisaume","issue_id":"fl-repo-8iz","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Configured AGENTS.md and docs/agents for Beads tracking, single-context domain docs, and dependency-gated TDD pull-request delivery."}}

@@ -126,3 +126,17 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues, specifications, and durable project work are tracked in the repository's Beads database using `bd`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+This repository uses a single-context domain-documentation layout. See `docs/agents/domain.md`.
+
+### Delivery workflow
+
+Plan with `grill-with-docs`, `to-spec`, and `to-tickets`; implement each claimed vertical slice with `tdd`; and keep the slice open until its pull request is merged. See `docs/agents/development-workflow.md`.
