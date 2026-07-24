@@ -140,3 +140,26 @@ This repository uses a single-context domain-documentation layout. See `docs/age
 ### Delivery workflow
 
 Plan with `grill-with-docs`, `to-spec`, and `to-tickets`; implement each claimed vertical slice with `tdd`; and keep the slice open until its pull request is merged. See `docs/agents/development-workflow.md`.
+
+## Implementation
+
+Implementation happens per-ticket in Beads, called a cycle.
+
+### Cycle start
+
+At the start of each ticket, create and check out a new ticket-specific Git branch. Work for different tickets must not share a branch.
+
+### Cycle end
+
+- Make a commit with a ticket name and a very short description.
+- Push the branch to remote with ```git push origin HEAD```.
+- Report errors and standby, if necessary. Otherwise move on.
+- Check remote to see if PR has succeeded for previous tickets, and update Beads accordingly.
+- Report status by stating the next tickets which are open or blocked.
+- Standby.
+
+### Live Scoping Doc during Implementation
+
+For version 1:
+
+      docs/specs/faceledger-v1-model-scope-amendment.md
