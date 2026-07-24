@@ -68,3 +68,4 @@
 sync.remote: "git+ssh://git@github.com/hisaume/faceledger.git"
 export:
     auto: true
+    git-add: true
