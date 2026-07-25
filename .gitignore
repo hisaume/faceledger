@@ -1,6 +1,8 @@
 
 *.code-workspace
 RAW-NOTES/
+__pycache__/
+*.py[cod]
 
 # Beads / Dolt files (added by bd init)
 .dolt/
