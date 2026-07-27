@@ -6,6 +6,8 @@ from faceledger.comparison import ComparisonOutcome
 def render_matches(outcome: ComparisonOutcome) -> str:
     """Render candidate matches for standard output."""
 
+    if not outcome.successful:
+        return ""
     if not outcome.matches:
         return "No matches found\n"
     lines = ["Rank  Identity  Cosine distance\n"]
