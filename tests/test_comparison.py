@@ -387,5 +387,117 @@ class FolderSourceComparisonTests(unittest.TestCase):
             self.assertIn("examined: 2, usable: 0", outcome.diagnostics[-1].message)
 
 
+class SinglePersonTargetComparisonTests(unittest.TestCase):
+    def test_skips_a_target_folder_without_the_exact_lowercase_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            (target_root / "Folder.JPG").write_bytes(b"lookalike anchor")
+            (target_root / "folder5.JPG").write_bytes(b"numbered folder image")
+            (target_root / "portrait.face2.png").write_bytes(b"numbered face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition({source: (1.0, 0.0)}),
+            )
+
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.matches, ())
+            self.assertEqual(outcome.diagnostics, ())
+
+    def test_compares_the_normalized_equal_weight_target_folder_vector(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            anchor = target_root / "folder.jpg"
+            anchor.write_bytes(b"anchor")
+            numbered_folder_image = target_root / "folder4.JPG"
+            numbered_folder_image.write_bytes(b"numbered folder image")
+            numbered_face_image = target_root / "portrait.FACE6.PNG"
+            numbered_face_image.write_bytes(b"numbered face image")
+            (target_root / "ordinary.jpg").write_bytes(b"not recognized")
+            descendant = target_root / "descendant"
+            descendant.mkdir()
+            (descendant / "folder.jpg").write_bytes(b"out of scope")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        anchor: (1.0, 0.0),
+                        numbered_folder_image: (3.0, 0.0),
+                        numbered_face_image: (0.0, 4.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                outcome.matches[0].identity_path,
+                Path("."),
+            )
+            self.assertAlmostEqual(
+                outcome.matches[0].cosine_distance,
+                1.0 - 2.0 / (5.0**0.5),
+            )
+            self.assertEqual(outcome.diagnostics, ())
+
+    def test_warns_for_unusable_target_images_and_keeps_the_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            anchor = target_root / "folder.jpg"
+            anchor.write_bytes(b"unusable anchor")
+            usable_image = target_root / "folder2.jpg"
+            usable_image.write_bytes(b"usable image")
+            unusable_image = target_root / "portrait.face8.webp"
+            unusable_image.write_bytes(b"unusable image")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                RecognitionWithFailures(
+                    vectors={
+                        source: (1.0, 0.0),
+                        usable_image: (3.0, 0.0),
+                    },
+                    failures={
+                        anchor: "Image could not be loaded",
+                        unusable_image: "Expected one face but found two",
+                    },
+                ),
+            )
+
+            self.assertTrue(outcome.successful)
+            self.assertEqual(
+                outcome.matches,
+                (CandidateMatch(identity_path=Path("."), cosine_distance=0.0),),
+            )
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-folder-image-unusable", "target-folder-image-unusable"],
+            )
+            self.assertEqual(
+                {diagnostic.path for diagnostic in outcome.diagnostics},
+                {anchor, unusable_image},
+            )
+            self.assertTrue(
+                all(
+                    diagnostic.severity == "warning"
+                    for diagnostic in outcome.diagnostics
+                )
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
