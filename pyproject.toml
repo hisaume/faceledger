@@ -11,8 +11,6 @@ dependencies = [
 
 [tool.uv]
 package = false
-required-version = "==0.11.15"
-python-preference = "only-managed"
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]

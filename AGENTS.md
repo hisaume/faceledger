@@ -23,6 +23,20 @@ bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
 
+## Python Environment
+
+- Use **uv** for Python version, virtual-environment, and dependency management.
+- The project Python version is pinned by `.python-version` to **CPython 3.12.13**.
+- `pyproject.toml` and `uv.lock` are the dependency source of truth; commit any resulting changes to them when dependencies change.
+- Create or restore the environment with `uv sync --locked`.
+- Run Python commands and tests through `uv run --locked`, for example:
+  - `uv run --locked python -m unittest discover -v`
+  - `uv run --locked python <script>`
+- Do not depend on shell activation or call `.venv/bin/python` directly. Activating `.venv` is optional convenience only.
+- Do not install project dependencies with system `pip`, user-site `pip`, or `sudo pip`.
+- Treat `.venv/` as disposable generated state. Recreate it with uv rather than repairing or committing it.
+- Add and remove dependencies with `uv add` and `uv remove`, then run the locked test suite.
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
