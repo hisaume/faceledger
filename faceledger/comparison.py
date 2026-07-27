@@ -32,6 +32,10 @@ class RecognitionFailure(Exception):
     """A selected image could not produce one usable face vector."""
 
 
+class AssetAcquisitionFailure(Exception):
+    """DeepFace could not acquire dependency-owned model assets."""
+
+
 class InvalidCacheEntry(Exception):
     """A model-qualified vector-cache entry is structurally incompatible."""
 
@@ -236,7 +240,7 @@ def _target_folder_views(
 
 def compare(
     request: ComparisonRequest,
-    recognition: RecognitionAdapter,
+    recognition: RecognitionAdapter | None = None,
 ) -> ComparisonOutcome:
     """Compare one standalone source with the selected root identity."""
 
@@ -369,6 +373,40 @@ def compare(
         )
 
     diagnostics: list[Diagnostic] = []
+    if recognition is None:
+        from faceledger.deepface_adapter import DeepFaceRecognition
+
+        def announce_missing_asset(path: Path) -> None:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    category="dependency",
+                    code="model-asset-acquisition",
+                    path=path,
+                    message=(
+                        f"DeepFace will acquire missing dependency asset {path.name}."
+                    ),
+                )
+            )
+
+        recognition = DeepFaceRecognition(announce_missing_asset)
+
+    def asset_failure_outcome(error: AssetAcquisitionFailure) -> ComparisonOutcome:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="dependency",
+                code="model-assets-unavailable",
+                path=None,
+                message=str(error),
+            )
+        )
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=tuple(diagnostics),
+            successful=False,
+        )
+
     if source_folder is not None:
         source_vector = (
             _reuse_cached_vector(
@@ -390,6 +428,8 @@ def compare(
             for path in source_images:
                 try:
                     source_vectors.append(recognition.vector_for(path, profile))
+                except AssetAcquisitionFailure as error:
+                    return asset_failure_outcome(error)
                 except RecognitionFailure as error:
                     diagnostics.append(
                         Diagnostic(
@@ -422,10 +462,12 @@ def compare(
     else:
         try:
             source_vector = recognition.vector_for(source, profile)
+        except AssetAcquisitionFailure as error:
+            return asset_failure_outcome(error)
         except RecognitionFailure as error:
             return ComparisonOutcome(
                 matches=(),
-                diagnostics=(
+                diagnostics=tuple(diagnostics) + (
                     Diagnostic(
                         severity="error",
                         category="source",
@@ -480,6 +522,8 @@ def compare(
             for path in target_images:
                 try:
                     target_vectors.append(recognition.vector_for(path, profile))
+                except AssetAcquisitionFailure as error:
+                    return asset_failure_outcome(error)
                 except (RecognitionFailure, OSError) as error:
                     diagnostics.append(
                         Diagnostic(
@@ -528,6 +572,8 @@ def compare(
                 )
                 if target_vector is None:
                     target_vector = recognition.vector_for(path, profile)
+            except AssetAcquisitionFailure as error:
+                return asset_failure_outcome(error)
             except (RecognitionFailure, OSError) as error:
                 diagnostics.append(
                     Diagnostic(
