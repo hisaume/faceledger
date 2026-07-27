@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
+from PIL import Image
+
 
 class RecognitionAdapter(Protocol):
     """Boundary used to calculate a vector for one face image."""
@@ -63,9 +65,25 @@ def _is_recognized_folder_image(path: Path) -> bool:
     stem = path.stem
     if suffix == ".jpg" and len(stem) == 7:
         return stem.startswith("folder") and stem[-1].isdigit()
+    return _is_numbered_face_image(path)
+
+
+def _is_numbered_face_image(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    stem = path.stem
     return suffix in {".jpg", ".jpeg", ".png", ".webp"} and any(
         stem.lower().endswith(f".face{number}") for number in range(10)
     )
+
+
+def _is_animated_webp(path: Path) -> bool:
+    if path.suffix.lower() != ".webp":
+        return False
+    try:
+        with Image.open(path) as image:
+            return bool(getattr(image, "is_animated", False)) or image.n_frames > 1
+    except OSError:
+        return False
 
 
 def _normalized(vector: Sequence[float]) -> tuple[float, ...]:
@@ -214,45 +232,70 @@ def compare(
                 successful=False,
             )
 
-    if not (target_root / "folder.jpg").is_file():
-        return ComparisonOutcome(
-            matches=(),
-            diagnostics=tuple(diagnostics),
+    target_image = target_root / "folder.jpg"
+    if target_image.is_file():
+        target_images = tuple(
+            path
+            for path in sorted(target_root.iterdir())
+            if path.is_file() and _is_recognized_folder_image(path)
         )
-
-    target_images = tuple(
-        path
-        for path in sorted(target_root.iterdir())
-        if path.is_file() and _is_recognized_folder_image(path)
-    )
-    target_vectors: list[Sequence[float]] = []
-    for path in target_images:
-        try:
-            target_vectors.append(recognition.vector_for(path))
-        except RecognitionFailure as error:
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    category="target",
-                    code="target-folder-image-unusable",
-                    path=path,
-                    message=str(error),
+        target_vectors: list[Sequence[float]] = []
+        for path in target_images:
+            try:
+                target_vectors.append(recognition.vector_for(path))
+            except RecognitionFailure as error:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="target",
+                        code="target-folder-image-unusable",
+                        path=path,
+                        message=str(error),
+                    )
                 )
-            )
-    if not target_vectors:
-        return ComparisonOutcome(
-            matches=(),
-            diagnostics=tuple(diagnostics),
+        target_identities = (
+            ((Path("."), _folder_vector(target_vectors)),)
+            if target_vectors
+            else ()
         )
-    target_vector = _folder_vector(target_vectors)
-    distance = _cosine_distance(
-        source_vector,
-        target_vector,
-    )
-    matches = (
-        (CandidateMatch(identity_path=Path("."), cosine_distance=distance),)
-        if distance <= request.threshold
-        else ()
+    else:
+        discovered_identities: list[tuple[Path, Sequence[float]]] = []
+        for path in sorted(target_root.iterdir()):
+            if not path.is_file() or not _is_numbered_face_image(path):
+                continue
+            if _is_animated_webp(path):
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="target",
+                        code="animated-webp-unsupported",
+                        path=path,
+                        message="Animated WebP target images are not supported.",
+                    )
+                )
+                continue
+            try:
+                target_vector = recognition.vector_for(path)
+            except RecognitionFailure as error:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="target",
+                        code="target-face-unusable",
+                        path=path,
+                        message=str(error),
+                    )
+                )
+            else:
+                discovered_identities.append(
+                    (path.relative_to(target_root), target_vector)
+                )
+        target_identities = tuple(discovered_identities)
+    matches = tuple(
+        CandidateMatch(identity_path=identity_path, cosine_distance=distance)
+        for identity_path, target_vector in target_identities
+        if (distance := _cosine_distance(source_vector, target_vector))
+        <= request.threshold
     )
     return ComparisonOutcome(
         matches=matches,

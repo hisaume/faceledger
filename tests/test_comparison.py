@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 from faceledger.comparison import (
     CandidateMatch,
     ComparisonRequest,
@@ -397,7 +399,6 @@ class SinglePersonTargetComparisonTests(unittest.TestCase):
             target_root.mkdir()
             (target_root / "Folder.JPG").write_bytes(b"lookalike anchor")
             (target_root / "folder5.JPG").write_bytes(b"numbered folder image")
-            (target_root / "portrait.face2.png").write_bytes(b"numbered face")
 
             outcome = compare(
                 ComparisonRequest(source=source, target_root=target_root),
@@ -497,6 +498,142 @@ class SinglePersonTargetComparisonTests(unittest.TestCase):
                     for diagnostic in outcome.diagnostics
                 )
             )
+
+
+class MultiPersonTargetComparisonTests(unittest.TestCase):
+    def test_compares_sparse_numbered_faces_as_independent_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            first_face = target_root / "Alice.FACE9.JPG"
+            first_face.write_bytes(b"first face")
+            second_face = target_root / "Bob.face2.PNG"
+            second_face.write_bytes(b"second face")
+            (target_root / "folder3.jpg").write_bytes(b"numbered folder image")
+            (target_root / "ordinary.jpg").write_bytes(b"ordinary image")
+            (target_root / "orphan.facenet512.npy").write_bytes(b"cache")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        first_face: (1.0, 0.0),
+                        second_face: (0.8, 0.6),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                outcome.matches,
+                (
+                    CandidateMatch(
+                        identity_path=Path("Alice.FACE9.JPG"),
+                        cosine_distance=0.0,
+                    ),
+                    CandidateMatch(
+                        identity_path=Path("Bob.face2.PNG"),
+                        cosine_distance=0.19999999999999996,
+                    ),
+                ),
+            )
+            self.assertEqual(outcome.diagnostics, ())
+
+    def test_warns_for_an_unusable_numbered_face_and_keeps_the_others(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            unusable_face = target_root / "group.face1.jpg"
+            unusable_face.write_bytes(b"multiple faces")
+            usable_face = target_root / "portrait.face7.jpeg"
+            usable_face.write_bytes(b"one face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                RecognitionWithFailures(
+                    vectors={
+                        source: (1.0, 0.0),
+                        usable_face: (1.0, 0.0),
+                    },
+                    failures={
+                        unusable_face: "Expected one face but found two",
+                    },
+                ),
+            )
+
+            self.assertTrue(outcome.successful)
+            self.assertEqual(
+                outcome.matches,
+                (
+                    CandidateMatch(
+                        identity_path=Path("portrait.face7.jpeg"),
+                        cosine_distance=0.0,
+                    ),
+                ),
+            )
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-face-unusable"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, unusable_face)
+            self.assertEqual(outcome.diagnostics[0].severity, "warning")
+
+    def test_compares_static_webp_and_excludes_animated_webp(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            static_webp = target_root / "Still.FACE4.WeBp"
+            Image.new("RGB", (2, 2), "red").save(static_webp, format="WEBP")
+            animated_webp = target_root / "Motion.face8.webp"
+            frames = [
+                Image.new("RGB", (2, 2), "red"),
+                Image.new("RGB", (2, 2), "blue"),
+            ]
+            frames[0].save(
+                animated_webp,
+                format="WEBP",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100,
+                loop=0,
+            )
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        static_webp: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                outcome.matches,
+                (
+                    CandidateMatch(
+                        identity_path=Path("Still.FACE4.WeBp"),
+                        cosine_distance=0.0,
+                    ),
+                ),
+            )
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["animated-webp-unsupported"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, animated_webp)
+            self.assertEqual(outcome.diagnostics[0].severity, "warning")
 
 
 if __name__ == "__main__":
