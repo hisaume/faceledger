@@ -166,10 +166,10 @@ At the start of each ticket, create and check out a new ticket-specific Git bran
 ### Cycle end
 
 - Make a commit with a ticket name and a very short description.
-- Push the branch to remote with ```git push origin HEAD```.
+- Push the branch to remote with `git push -u origin HEAD`.
 - Report errors and standby, if necessary. Otherwise move on.
 - Check remote to see if PR has succeeded for previous tickets, and update Beads accordingly.
-- Report status by stating the next tickets which are open or blocked.
+- Report status by stating the next tickets which are open or blocked. Also report the tickets which previously became open, and has remained open, so that it is clear which ones just became open and which ones have been open all along.
 - Standby.
 
 ### Live Scoping Doc during Implementation

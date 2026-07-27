@@ -9,11 +9,21 @@ from typing import Protocol, Sequence
 
 from PIL import Image
 
+from faceledger.vector_profiles import (
+    DEFAULT_MODEL_NAME,
+    VECTOR_PROFILES,
+    VectorProfile,
+)
+
 
 class RecognitionAdapter(Protocol):
     """Boundary used to calculate a vector for one face image."""
 
-    def vector_for(self, image_path: Path) -> Sequence[float]: ...
+    def vector_for(
+        self,
+        image_path: Path,
+        profile: VectorProfile,
+    ) -> Sequence[float]: ...
 
 
 class RecognitionFailure(Exception):
@@ -25,7 +35,8 @@ class ComparisonRequest:
     target_root: Path
     source: Path | None = None
     source_folder: Path | None = None
-    threshold: float = 0.30
+    model_name: str = DEFAULT_MODEL_NAME
+    threshold: float | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +117,41 @@ def compare(
 ) -> ComparisonOutcome:
     """Compare one standalone source with the selected root identity."""
 
+    if request.model_name not in VECTOR_PROFILES:
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=(
+                Diagnostic(
+                    severity="error",
+                    category="input",
+                    code="recognition-model-unsupported",
+                    path=None,
+                    message=f"Unsupported recognition model: {request.model_name}.",
+                ),
+            ),
+            successful=False,
+        )
+    profile = VECTOR_PROFILES[request.model_name]
+    if request.threshold is not None and (
+        not math.isfinite(request.threshold) or not 0.0 <= request.threshold <= 2.0
+    ):
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=(
+                Diagnostic(
+                    severity="error",
+                    category="input",
+                    code="match-threshold-invalid",
+                    path=None,
+                    message="The match threshold must be finite and within [0, 2].",
+                ),
+            ),
+            successful=False,
+        )
+    active_threshold = (
+        profile.cosine_threshold if request.threshold is None else request.threshold
+    )
+
     if request.source is not None and request.source_folder is not None:
         return ComparisonOutcome(
             matches=(),
@@ -184,7 +230,7 @@ def compare(
         source_vectors: list[Sequence[float]] = []
         for path in source_images:
             try:
-                source_vectors.append(recognition.vector_for(path))
+                source_vectors.append(recognition.vector_for(path, profile))
             except RecognitionFailure as error:
                 diagnostics.append(
                     Diagnostic(
@@ -216,7 +262,7 @@ def compare(
         source_vector = _folder_vector(source_vectors)
     else:
         try:
-            source_vector = recognition.vector_for(source)
+            source_vector = recognition.vector_for(source, profile)
         except RecognitionFailure as error:
             return ComparisonOutcome(
                 matches=(),
@@ -242,7 +288,7 @@ def compare(
         target_vectors: list[Sequence[float]] = []
         for path in target_images:
             try:
-                target_vectors.append(recognition.vector_for(path))
+                target_vectors.append(recognition.vector_for(path, profile))
             except RecognitionFailure as error:
                 diagnostics.append(
                     Diagnostic(
@@ -275,7 +321,7 @@ def compare(
                 )
                 continue
             try:
-                target_vector = recognition.vector_for(path)
+                target_vector = recognition.vector_for(path, profile)
             except RecognitionFailure as error:
                 diagnostics.append(
                     Diagnostic(
@@ -292,10 +338,15 @@ def compare(
                 )
         target_identities = tuple(discovered_identities)
     matches = tuple(
-        CandidateMatch(identity_path=identity_path, cosine_distance=distance)
-        for identity_path, target_vector in target_identities
-        if (distance := _cosine_distance(source_vector, target_vector))
-        <= request.threshold
+        sorted(
+            (
+                CandidateMatch(identity_path=identity_path, cosine_distance=distance)
+                for identity_path, target_vector in target_identities
+                if (distance := _cosine_distance(source_vector, target_vector))
+                <= active_threshold
+            ),
+            key=lambda match: match.cosine_distance,
+        )
     )
     return ComparisonOutcome(
         matches=matches,
