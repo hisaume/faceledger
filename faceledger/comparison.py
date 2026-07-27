@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Iterator, Protocol, Sequence
 
 from PIL import Image
 
@@ -37,6 +38,7 @@ class ComparisonRequest:
     source_folder: Path | None = None
     model_name: str = DEFAULT_MODEL_NAME
     threshold: float | None = None
+    single_target_folder: bool = False
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,68 @@ def _folder_vector(vectors: Sequence[Sequence[float]]) -> tuple[float, ...]:
         for values in zip(*normalized_vectors, strict=True)
     )
     return _normalized(centroid)
+
+
+def _warn_target_unavailable(
+    diagnostics: list[Diagnostic],
+    path: Path,
+    error: OSError,
+) -> None:
+    diagnostics.append(
+        Diagnostic(
+            severity="warning",
+            category="target",
+            code="target-descendant-unavailable",
+            path=path,
+            message=str(error),
+        )
+    )
+
+
+def _target_folder_views(
+    target_root: Path,
+    recursive: bool,
+    diagnostics: list[Diagnostic],
+) -> Iterator[tuple[Path, tuple[Path, ...]]]:
+    pending = [target_root]
+    while pending:
+        target_folder = pending.pop()
+        try:
+            target_entries = tuple(sorted(target_folder.iterdir()))
+        except OSError as error:
+            _warn_target_unavailable(diagnostics, target_folder, error)
+            continue
+
+        regular_files: list[Path] = []
+        child_directories: list[Path] = []
+        for path in target_entries:
+            try:
+                if path.is_symlink():
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            category="target",
+                            code="target-symlink-skipped",
+                            path=path,
+                            message="Discovered target symlinks are not followed.",
+                        )
+                    )
+                elif path.is_dir():
+                    child_directories.append(path)
+                elif path.is_file():
+                    regular_files.append(path)
+                elif not path.exists():
+                    _warn_target_unavailable(
+                        diagnostics,
+                        path,
+                        FileNotFoundError(f"Discovered target disappeared: {path}"),
+                    )
+            except OSError as error:
+                _warn_target_unavailable(diagnostics, path, error)
+
+        if recursive:
+            pending.extend(reversed(child_directories))
+        yield target_folder, tuple(regular_files)
 
 
 def compare(
@@ -186,6 +250,31 @@ def compare(
     source_folder = (
         request.source_folder.resolve() if request.source_folder is not None else None
     )
+    target_root_error: OSError | None = None
+    if not target_root.is_dir():
+        target_root_error = NotADirectoryError(
+            f"Target root is not a directory: {target_root}"
+        )
+    else:
+        try:
+            with os.scandir(target_root) as entries:
+                next(entries, None)
+        except OSError as error:
+            target_root_error = error
+    if target_root_error is not None:
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=(
+                Diagnostic(
+                    severity="error",
+                    category="target",
+                    code="target-root-invalid",
+                    path=target_root,
+                    message=str(target_root_error),
+                ),
+            ),
+            successful=False,
+        )
     if source is not None and not source.is_file():
         return ComparisonOutcome(
             matches=(),
@@ -278,36 +367,57 @@ def compare(
                 successful=False,
             )
 
-    target_image = target_root / "folder.jpg"
-    if target_image.is_file():
-        target_images = tuple(
-            path
-            for path in sorted(target_root.iterdir())
-            if path.is_file() and _is_recognized_folder_image(path)
+    discovered_identities: list[tuple[Path, Sequence[float]]] = []
+    for target_folder, regular_entries in _target_folder_views(
+        target_root,
+        recursive=not request.single_target_folder,
+        diagnostics=diagnostics,
+    ):
+        target_image = next(
+            (
+                path
+                for path in regular_entries
+                if path.name == "folder.jpg"
+            ),
+            None,
         )
-        target_vectors: list[Sequence[float]] = []
-        for path in target_images:
-            try:
-                target_vectors.append(recognition.vector_for(path, profile))
-            except RecognitionFailure as error:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="warning",
-                        category="target",
-                        code="target-folder-image-unusable",
-                        path=path,
-                        message=str(error),
+        if target_image is not None:
+            if source_folder == target_folder or (
+                source is not None and source.parent == target_folder
+            ):
+                continue
+            target_images = tuple(
+                path
+                for path in regular_entries
+                if _is_recognized_folder_image(path)
+            )
+            target_vectors: list[Sequence[float]] = []
+            for path in target_images:
+                try:
+                    target_vectors.append(recognition.vector_for(path, profile))
+                except (RecognitionFailure, OSError) as error:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            category="target",
+                            code="target-folder-image-unusable",
+                            path=path,
+                            message=str(error),
+                        )
+                    )
+            if target_vectors:
+                discovered_identities.append(
+                    (
+                        target_folder.relative_to(target_root),
+                        _folder_vector(target_vectors),
                     )
                 )
-        target_identities = (
-            ((Path("."), _folder_vector(target_vectors)),)
-            if target_vectors
-            else ()
-        )
-    else:
-        discovered_identities: list[tuple[Path, Sequence[float]]] = []
-        for path in sorted(target_root.iterdir()):
-            if not path.is_file() or not _is_numbered_face_image(path):
+            continue
+
+        for path in regular_entries:
+            if not _is_numbered_face_image(path):
+                continue
+            if source is not None and path == source:
                 continue
             if _is_animated_webp(path):
                 diagnostics.append(
@@ -322,7 +432,7 @@ def compare(
                 continue
             try:
                 target_vector = recognition.vector_for(path, profile)
-            except RecognitionFailure as error:
+            except (RecognitionFailure, OSError) as error:
                 diagnostics.append(
                     Diagnostic(
                         severity="warning",
@@ -336,7 +446,7 @@ def compare(
                 discovered_identities.append(
                     (path.relative_to(target_root), target_vector)
                 )
-        target_identities = tuple(discovered_identities)
+    target_identities = tuple(discovered_identities)
     matches = tuple(
         sorted(
             (
