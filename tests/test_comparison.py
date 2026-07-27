@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from faceledger.comparison import (
@@ -85,6 +86,10 @@ def snapshot_files(root: Path) -> dict[Path, bytes]:
         for path in root.rglob("*")
         if path.is_file()
     }
+
+
+def unit_vector(index: int = 0) -> tuple[float, ...]:
+    return tuple(1.0 if position == index else 0.0 for position in range(512))
 
 
 class StandaloneComparisonTests(unittest.TestCase):
@@ -365,7 +370,11 @@ class StandaloneComparisonTests(unittest.TestCase):
                 outcome.matches,
                 (CandidateMatch(identity_path=Path("."), cosine_distance=0.0),),
             )
-            self.assertEqual(outcome.diagnostics, ())
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-cache-invalid"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, existing_cache)
             self.assertEqual(outcome.progress, ())
             self.assertEqual(snapshot_files(root), before)
 
@@ -1201,6 +1210,306 @@ class LiveFaceTreeTraversalTests(unittest.TestCase):
                 ["target-descendant-unavailable"],
             )
             self.assertEqual(outcome.diagnostics[0].path, unreadable_directory)
+
+
+class VectorCacheReuseTests(unittest.TestCase):
+    def test_reuses_a_compatible_multi_person_target_cache_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            target_face = target_root / "Person.face0.jpg"
+            target_face.write_bytes(b"target face")
+            cache = target_root / "Person.face0.jpg.facenet512.npy"
+            np.save(cache, np.asarray(unit_vector()))
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition({source: unit_vector()}),
+            )
+
+            self.assertEqual(
+                outcome.matches,
+                (
+                    CandidateMatch(
+                        identity_path=Path("Person.face0.jpg"),
+                        cosine_distance=0.0,
+                    ),
+                ),
+            )
+            self.assertEqual(outcome.diagnostics, ())
+            self.assertEqual(snapshot_files(root), before)
+
+    def test_reuses_folder_aggregate_caches_associated_with_the_anchors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_folder = root / "Source Person"
+            source_folder.mkdir()
+            source_anchor = source_folder / "folder.jpg"
+            source_anchor.write_bytes(b"source anchor")
+            np.save(
+                source_folder / "folder.jpg.facenet512.npy",
+                np.asarray(unit_vector()),
+            )
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            target_anchor = target_root / "folder.jpg"
+            target_anchor.write_bytes(b"target anchor")
+            np.save(
+                target_root / "folder.jpg.facenet512.npy",
+                np.asarray(unit_vector()),
+            )
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(
+                    source_folder=source_folder,
+                    target_root=target_root,
+                ),
+                DeterministicRecognition({}),
+            )
+
+            self.assertEqual(
+                outcome.matches,
+                (CandidateMatch(identity_path=Path("."), cosine_distance=0.0),),
+            )
+            self.assertEqual(outcome.diagnostics, ())
+            self.assertEqual(snapshot_files(root), before)
+
+    def test_can_disable_cache_reuse_for_a_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_folder = root / "Source Person"
+            source_folder.mkdir()
+            source_anchor = source_folder / "folder.jpg"
+            source_anchor.write_bytes(b"source anchor")
+            np.save(
+                source_folder / "folder.jpg.facenet512.npy",
+                np.asarray(unit_vector(1)),
+            )
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            target_anchor = target_root / "folder.jpg"
+            target_anchor.write_bytes(b"target anchor")
+            np.save(
+                target_root / "folder.jpg.facenet512.npy",
+                np.asarray(unit_vector(2)),
+            )
+
+            outcome = compare(
+                ComparisonRequest(
+                    source_folder=source_folder,
+                    target_root=target_root,
+                    reuse_cache=False,
+                ),
+                DeterministicRecognition(
+                    {
+                        source_anchor: unit_vector(),
+                        target_anchor: unit_vector(),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                outcome.matches,
+                (CandidateMatch(identity_path=Path("."), cosine_distance=0.0),),
+            )
+            self.assertEqual(outcome.diagnostics, ())
+
+    def test_never_reuses_a_cache_beside_a_standalone_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            np.save(
+                root / "source.jpg.facenet512.npy",
+                np.asarray(unit_vector(1)),
+            )
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            target_face = target_root / "Person.face0.jpg"
+            target_face.write_bytes(b"target face")
+            np.save(
+                target_root / "Person.face0.jpg.facenet512.npy",
+                np.asarray(unit_vector()),
+            )
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition({source: unit_vector()}),
+            )
+
+            self.assertEqual(len(outcome.matches), 1)
+
+    def test_warns_and_recalculates_an_incompatible_target_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            target_face = target_root / "Person.face0.jpg"
+            target_face.write_bytes(b"target face")
+            invalid_cache = target_root / "Person.face0.jpg.facenet512.npy"
+            np.save(invalid_cache, np.asarray((1.0, 0.0)))
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: unit_vector(),
+                        target_face: unit_vector(),
+                    }
+                ),
+            )
+
+            self.assertEqual(len(outcome.matches), 1)
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-cache-invalid"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, invalid_cache)
+            self.assertEqual(snapshot_files(root), before)
+
+    def test_warns_and_recalculates_an_invalid_source_folder_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_folder = root / "Source Person"
+            source_folder.mkdir()
+            source_anchor = source_folder / "folder.jpg"
+            source_anchor.write_bytes(b"source anchor")
+            invalid_cache = source_folder / "folder.jpg.facenet512.npy"
+            invalid_cache.write_bytes(b"not an npy file")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            target_anchor = target_root / "folder.jpg"
+            target_anchor.write_bytes(b"target anchor")
+            np.save(
+                target_root / "folder.jpg.facenet512.npy",
+                np.asarray(unit_vector()),
+            )
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(
+                    source_folder=source_folder,
+                    target_root=target_root,
+                ),
+                DeterministicRecognition({source_anchor: unit_vector()}),
+            )
+
+            self.assertEqual(len(outcome.matches), 1)
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["source-cache-invalid"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, invalid_cache)
+            self.assertEqual(snapshot_files(root), before)
+
+    def test_warns_and_recalculates_an_invalid_target_folder_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            target_anchor = target_root / "folder.jpg"
+            target_anchor.write_bytes(b"target anchor")
+            invalid_cache = target_root / "folder.jpg.facenet512.npy"
+            np.save(invalid_cache, np.asarray(["not numeric"] * 512))
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: unit_vector(),
+                        target_anchor: unit_vector(),
+                    }
+                ),
+            )
+
+            self.assertEqual(len(outcome.matches), 1)
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-cache-invalid"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, invalid_cache)
+            self.assertEqual(snapshot_files(root), before)
+
+    def test_uses_only_the_exact_case_sensitive_selected_model_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            target_face = target_root / "Person.face0.jpg"
+            target_face.write_bytes(b"target face")
+            np.save(
+                target_root / "Person.face0.jpg.arcface.npy",
+                np.asarray(unit_vector()),
+            )
+            np.save(
+                target_root / "Person.face0.jpg.ArcFace.npy",
+                np.asarray(unit_vector(1)),
+            )
+            np.save(
+                target_root / "Person.face0.jpg.facenet512.npy",
+                np.asarray(unit_vector(2)),
+            )
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(
+                    source=source,
+                    target_root=target_root,
+                    model_name="ArcFace",
+                ),
+                DeterministicRecognition({source: unit_vector()}),
+            )
+
+            self.assertEqual(len(outcome.matches), 1)
+            self.assertEqual(outcome.diagnostics, ())
+            self.assertEqual(snapshot_files(root), before)
+
+    def test_compares_a_hybrid_cached_and_transient_target_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            cached_face = target_root / "Cached.face0.jpg"
+            cached_face.write_bytes(b"cached target")
+            np.save(
+                target_root / "Cached.face0.jpg.facenet512.npy",
+                np.asarray(unit_vector()),
+            )
+            transient_face = target_root / "Transient.face1.jpg"
+            transient_face.write_bytes(b"transient target")
+            before = snapshot_files(root)
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: unit_vector(),
+                        transient_face: unit_vector(),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                {match.identity_path for match in outcome.matches},
+                {Path("Cached.face0.jpg"), Path("Transient.face1.jpg")},
+            )
+            self.assertEqual(outcome.diagnostics, ())
+            self.assertEqual(snapshot_files(root), before)
 
 
 if __name__ == "__main__":
