@@ -67,11 +67,21 @@ class Diagnostic:
 
 
 @dataclass(frozen=True)
+class ComparisonMetadata:
+    source: Path
+    target_root: Path
+    model_name: str
+    threshold: float
+
+
+@dataclass(frozen=True)
 class ComparisonOutcome:
     matches: tuple[CandidateMatch, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
     progress: tuple[object, ...] = ()
     successful: bool = True
+    target_identities_compared: int = 0
+    metadata: ComparisonMetadata | None = None
 
 
 def _cosine_distance(left: Sequence[float], right: Sequence[float]) -> float:
@@ -600,7 +610,17 @@ def compare(
             key=lambda match: match.cosine_distance,
         )
     )
+    resolved_source = source if source is not None else source_folder
+    if resolved_source is None:
+        raise AssertionError("Validated comparison has no resolved source.")
     return ComparisonOutcome(
         matches=matches,
         diagnostics=tuple(diagnostics),
+        target_identities_compared=len(target_identities),
+        metadata=ComparisonMetadata(
+            source=resolved_source,
+            target_root=target_root,
+            model_name=profile.model_name,
+            threshold=active_threshold,
+        ),
     )
