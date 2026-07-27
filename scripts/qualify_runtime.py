@@ -10,26 +10,38 @@ import json
 import math
 import os
 import platform
+import sys
 from pathlib import Path
 from typing import Any
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from faceledger.vector_profiles import DEFAULT_MODEL_NAME, VECTOR_PROFILES
+
+
+_DEFAULT_PROFILE = VECTOR_PROFILES[DEFAULT_MODEL_NAME]
 
 VECTOR_PROFILE = {
     "deepface_version": "0.0.100",
     "python_version": "3.12",
     "tensorflow_version": "2.21.0",
     "tf_keras_version": "2.21.0",
-    "detector_backend": "retinaface",
-    "align": True,
-    "recognition_models": ["Facenet512", "ArcFace"],
+    "detector_backend": _DEFAULT_PROFILE.detector_backend,
+    "align": _DEFAULT_PROFILE.align,
+    "recognition_models": list(VECTOR_PROFILES),
     "static_image_formats": ["JPEG", "PNG", "WEBP"],
     "embedding_dimensions": {
-        "Facenet512": 512,
-        "ArcFace": 512,
+        name: profile.expected_dimensions
+        for name, profile in VECTOR_PROFILES.items()
+    },
+    "cache_slugs": {
+        name: profile.cache_slug for name, profile in VECTOR_PROFILES.items()
+    },
+    "cosine_thresholds": {
+        name: profile.cosine_threshold for name, profile in VECTOR_PROFILES.items()
     },
 }
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _parse_images(values: list[str], parser: argparse.ArgumentParser) -> dict[str, Path]:

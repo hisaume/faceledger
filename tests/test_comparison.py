@@ -17,12 +17,12 @@ class DeterministicRecognition:
     def __init__(self, vectors: dict[Path, tuple[float, ...]]) -> None:
         self._vectors = vectors
 
-    def vector_for(self, image_path: Path) -> tuple[float, ...]:
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
         return self._vectors[image_path]
 
 
 class FailingRecognition:
-    def vector_for(self, image_path: Path) -> tuple[float, ...]:
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
         raise RecognitionFailure(f"No usable face found in {image_path.name}")
 
 
@@ -35,10 +35,29 @@ class RecognitionWithFailures:
         self._vectors = vectors
         self._failures = failures
 
-    def vector_for(self, image_path: Path) -> tuple[float, ...]:
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
         if image_path in self._failures:
             raise RecognitionFailure(self._failures[image_path])
         return self._vectors[image_path]
+
+
+class ProfileSensitiveRecognition:
+    def __init__(
+        self,
+        vectors: dict[tuple[Path, tuple[object, ...]], tuple[float, ...]],
+    ) -> None:
+        self._vectors = vectors
+
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
+        profile_key = (
+            profile.model_name,
+            profile.cache_slug,
+            profile.expected_dimensions,
+            profile.cosine_threshold,
+            profile.detector_backend,
+            profile.align,
+        )
+        return self._vectors[(image_path, profile_key)]
 
 
 def snapshot_files(root: Path) -> dict[Path, bytes]:
@@ -50,6 +69,169 @@ def snapshot_files(root: Path) -> dict[Path, bytes]:
 
 
 class StandaloneComparisonTests(unittest.TestCase):
+    def test_uses_the_fixed_facenet512_profile_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source image")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            target_image = target_root / "folder.jpg"
+            target_image.write_bytes(b"target image")
+            facenet512_profile = (
+                "Facenet512",
+                "facenet512",
+                512,
+                0.30,
+                "retinaface",
+                True,
+            )
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                ProfileSensitiveRecognition(
+                    {
+                        (source, facenet512_profile): (1.0, 0.0),
+                        (target_image, facenet512_profile): (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                outcome.matches,
+                (CandidateMatch(identity_path=Path("."), cosine_distance=0.0),),
+            )
+
+    def test_selects_arcface_with_its_default_match_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source image")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            target_image = target_root / "folder.jpg"
+            target_image.write_bytes(b"target image")
+            arcface_profile = (
+                "ArcFace",
+                "arcface",
+                512,
+                0.68,
+                "retinaface",
+                True,
+            )
+
+            outcome = compare(
+                ComparisonRequest(
+                    source=source,
+                    target_root=target_root,
+                    model_name="ArcFace",
+                ),
+                ProfileSensitiveRecognition(
+                    {
+                        (source, arcface_profile): (1.0, 0.0),
+                        (target_image, arcface_profile): (0.5, 0.8660254037844386),
+                    }
+                ),
+            )
+
+            self.assertEqual(len(outcome.matches), 1)
+            self.assertAlmostEqual(outcome.matches[0].cosine_distance, 0.5)
+
+    def test_rejects_an_unsupported_recognition_model_before_target_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source image")
+            target_root = root / "Target Person"
+            target_root.mkdir()
+            (target_root / "folder.jpg").write_bytes(b"target image")
+
+            outcome = compare(
+                ComparisonRequest(
+                    source=source,
+                    target_root=target_root,
+                    model_name="VGG-Face",
+                ),
+                DeterministicRecognition({}),
+            )
+
+            self.assertFalse(outcome.successful)
+            self.assertEqual(outcome.matches, ())
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["recognition-model-unsupported"],
+            )
+
+    def test_rejects_an_invalid_threshold_before_target_work(self) -> None:
+        invalid_thresholds = (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            -0.01,
+            2.01,
+        )
+        for invalid_threshold in invalid_thresholds:
+            with self.subTest(threshold=invalid_threshold):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    source = root / "source.jpg"
+                    source.write_bytes(b"source image")
+                    target_root = root / "Target Person"
+                    target_root.mkdir()
+                    (target_root / "folder.jpg").write_bytes(b"target image")
+
+                    outcome = compare(
+                        ComparisonRequest(
+                            source=source,
+                            target_root=target_root,
+                            threshold=invalid_threshold,
+                        ),
+                        DeterministicRecognition({}),
+                    )
+
+                self.assertFalse(outcome.successful)
+                self.assertEqual(outcome.matches, ())
+                self.assertEqual(
+                    [diagnostic.code for diagnostic in outcome.diagnostics],
+                    ["match-threshold-invalid"],
+                )
+
+    def test_accepts_inclusive_threshold_override_boundaries(self) -> None:
+        cases = (
+            (0.0, (1.0, 0.0), 0.0),
+            (2.0, (-1.0, 0.0), 2.0),
+        )
+        for threshold, target_vector, expected_distance in cases:
+            with self.subTest(threshold=threshold):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    source = root / "source.jpg"
+                    source.write_bytes(b"source image")
+                    target_root = root / "Target Person"
+                    target_root.mkdir()
+                    target_image = target_root / "folder.jpg"
+                    target_image.write_bytes(b"target image")
+
+                    outcome = compare(
+                        ComparisonRequest(
+                            source=source,
+                            target_root=target_root,
+                            threshold=threshold,
+                        ),
+                        DeterministicRecognition(
+                            {
+                                source: (1.0, 0.0),
+                                target_image: target_vector,
+                            }
+                        ),
+                    )
+
+                self.assertEqual(len(outcome.matches), 1)
+                self.assertAlmostEqual(
+                    outcome.matches[0].cosine_distance,
+                    expected_distance,
+                )
+
     def test_rejects_a_missing_source_before_target_work(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             target_root = Path(temporary_directory) / "Target Person"
@@ -501,6 +683,34 @@ class SinglePersonTargetComparisonTests(unittest.TestCase):
 
 
 class MultiPersonTargetComparisonTests(unittest.TestCase):
+    def test_orders_threshold_qualified_candidates_by_cosine_distance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            farther_face = target_root / "A.face0.jpg"
+            farther_face.write_bytes(b"farther face")
+            nearer_face = target_root / "Z.face1.jpg"
+            nearer_face.write_bytes(b"nearer face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        farther_face: (0.8, 0.6),
+                        nearer_face: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("Z.face1.jpg"), Path("A.face0.jpg")],
+            )
+
     def test_compares_sparse_numbered_faces_as_independent_identities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

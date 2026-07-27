@@ -38,6 +38,14 @@ class RuntimeQualificationContractTests(unittest.TestCase):
             contract["embedding_dimensions"],
             {"Facenet512": 512, "ArcFace": 512},
         )
+        self.assertEqual(
+            contract["cache_slugs"],
+            {"Facenet512": "facenet512", "ArcFace": "arcface"},
+        )
+        self.assertEqual(
+            contract["cosine_thresholds"],
+            {"Facenet512": 0.30, "ArcFace": 0.68},
+        )
 
     def test_qualifies_every_model_and_static_image_format(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
