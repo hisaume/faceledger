@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Protocol, Sequence
 
+import numpy as np
 from PIL import Image
 
 from faceledger.vector_profiles import (
@@ -31,6 +32,10 @@ class RecognitionFailure(Exception):
     """A selected image could not produce one usable face vector."""
 
 
+class InvalidCacheEntry(Exception):
+    """A model-qualified vector-cache entry is structurally incompatible."""
+
+
 @dataclass(frozen=True)
 class ComparisonRequest:
     target_root: Path
@@ -39,6 +44,7 @@ class ComparisonRequest:
     model_name: str = DEFAULT_MODEL_NAME
     threshold: float | None = None
     single_target_folder: bool = False
+    reuse_cache: bool = True
 
 
 @dataclass(frozen=True)
@@ -111,6 +117,59 @@ def _folder_vector(vectors: Sequence[Sequence[float]]) -> tuple[float, ...]:
         for values in zip(*normalized_vectors, strict=True)
     )
     return _normalized(centroid)
+
+
+def _cache_path(image_path: Path, profile: VectorProfile) -> Path:
+    return image_path.with_name(f"{image_path.name}.{profile.cache_slug}.npy")
+
+
+def _load_cached_vector(
+    image_path: Path,
+    profile: VectorProfile,
+) -> tuple[float, ...] | None:
+    cache_path = _cache_path(image_path, profile)
+    if cache_path.is_symlink() or not cache_path.is_file():
+        return None
+    try:
+        vector = np.load(cache_path, allow_pickle=False)
+    except (OSError, ValueError, EOFError) as error:
+        raise InvalidCacheEntry(
+            "Cache entry could not be loaded as a non-pickled NPY vector."
+        ) from error
+    if not isinstance(vector, np.ndarray):
+        vector.close()
+        raise InvalidCacheEntry("Cache entry is not a single NPY vector.")
+    if (
+        vector.ndim != 1
+        or vector.shape[0] != profile.expected_dimensions
+        or not np.issubdtype(vector.dtype, np.number)
+        or np.issubdtype(vector.dtype, np.complexfloating)
+    ):
+        raise InvalidCacheEntry(
+            f"Expected a {profile.expected_dimensions}-dimension numeric vector."
+        )
+    return tuple(float(value) for value in vector)
+
+
+def _reuse_cached_vector(
+    image_path: Path,
+    profile: VectorProfile,
+    diagnostics: list[Diagnostic],
+    category: str,
+) -> tuple[float, ...] | None:
+    try:
+        return _load_cached_vector(image_path, profile)
+    except InvalidCacheEntry as error:
+        diagnostics.append(
+            Diagnostic(
+                severity="warning",
+                category=category,
+                code=f"{category}-cache-invalid",
+                path=_cache_path(image_path, profile),
+                message=str(error),
+            )
+        )
+        return None
 
 
 def _warn_target_unavailable(
@@ -311,44 +370,55 @@ def compare(
 
     diagnostics: list[Diagnostic] = []
     if source_folder is not None:
-        source_images = tuple(
-            path
-            for path in sorted(source_folder.iterdir())
-            if path.is_file() and _is_recognized_folder_image(path)
+        source_vector = (
+            _reuse_cached_vector(
+                source_folder / "folder.jpg",
+                profile,
+                diagnostics,
+                category="source",
+            )
+            if request.reuse_cache
+            else None
         )
-        source_vectors: list[Sequence[float]] = []
-        for path in source_images:
-            try:
-                source_vectors.append(recognition.vector_for(path, profile))
-            except RecognitionFailure as error:
+        if source_vector is None:
+            source_images = tuple(
+                path
+                for path in sorted(source_folder.iterdir())
+                if path.is_file() and _is_recognized_folder_image(path)
+            )
+            source_vectors: list[Sequence[float]] = []
+            for path in source_images:
+                try:
+                    source_vectors.append(recognition.vector_for(path, profile))
+                except RecognitionFailure as error:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            category="source",
+                            code="source-folder-image-unusable",
+                            path=path,
+                            message=str(error),
+                        )
+                    )
+            if not source_vectors:
                 diagnostics.append(
                     Diagnostic(
-                        severity="warning",
+                        severity="error",
                         category="source",
-                        code="source-folder-image-unusable",
-                        path=path,
-                        message=str(error),
+                        code="source-folder-unusable",
+                        path=source_folder,
+                        message=(
+                            f"No usable source faces found in {source_folder} "
+                            f"(examined: {len(source_images)}, usable: 0)."
+                        ),
                     )
                 )
-        if not source_vectors:
-            diagnostics.append(
-                Diagnostic(
-                    severity="error",
-                    category="source",
-                    code="source-folder-unusable",
-                    path=source_folder,
-                    message=(
-                        f"No usable source faces found in {source_folder} "
-                        f"(examined: {len(source_images)}, usable: 0)."
-                    ),
+                return ComparisonOutcome(
+                    matches=(),
+                    diagnostics=tuple(diagnostics),
+                    successful=False,
                 )
-            )
-            return ComparisonOutcome(
-                matches=(),
-                diagnostics=tuple(diagnostics),
-                successful=False,
-            )
-        source_vector = _folder_vector(source_vectors)
+            source_vector = _folder_vector(source_vectors)
     else:
         try:
             source_vector = recognition.vector_for(source, profile)
@@ -385,6 +455,21 @@ def compare(
             if source_folder == target_folder or (
                 source is not None and source.parent == target_folder
             ):
+                continue
+            target_vector = (
+                _reuse_cached_vector(
+                    target_image,
+                    profile,
+                    diagnostics,
+                    category="target",
+                )
+                if request.reuse_cache
+                else None
+            )
+            if target_vector is not None:
+                discovered_identities.append(
+                    (target_folder.relative_to(target_root), target_vector)
+                )
                 continue
             target_images = tuple(
                 path
@@ -431,7 +516,18 @@ def compare(
                 )
                 continue
             try:
-                target_vector = recognition.vector_for(path, profile)
+                target_vector = (
+                    _reuse_cached_vector(
+                        path,
+                        profile,
+                        diagnostics,
+                        category="target",
+                    )
+                    if request.reuse_cache
+                    else None
+                )
+                if target_vector is None:
+                    target_vector = recognition.vector_for(path, profile)
             except (RecognitionFailure, OSError) as error:
                 diagnostics.append(
                     Diagnostic(

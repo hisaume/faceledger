@@ -122,6 +122,7 @@ version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "deepface" },
+    { name = "numpy" },
     { name = "pillow" },
     { name = "tensorflow" },
     { name = "tf-keras" },
@@ -130,6 +131,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "deepface", specifier = "==0.0.100" },
+    { name = "numpy", specifier = "==2.5.1" },
     { name = "pillow", specifier = "==12.3.0" },
     { name = "tensorflow", specifier = "==2.21.0" },
     { name = "tf-keras", specifier = "==2.21.0" },
