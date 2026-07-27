@@ -156,7 +156,7 @@ def compare(
             successful=False,
         )
 
-    source_diagnostics: list[Diagnostic] = []
+    diagnostics: list[Diagnostic] = []
     if source_folder is not None:
         source_images = tuple(
             path
@@ -168,7 +168,7 @@ def compare(
             try:
                 source_vectors.append(recognition.vector_for(path))
             except RecognitionFailure as error:
-                source_diagnostics.append(
+                diagnostics.append(
                     Diagnostic(
                         severity="warning",
                         category="source",
@@ -178,7 +178,7 @@ def compare(
                     )
                 )
         if not source_vectors:
-            source_diagnostics.append(
+            diagnostics.append(
                 Diagnostic(
                     severity="error",
                     category="source",
@@ -192,7 +192,7 @@ def compare(
             )
             return ComparisonOutcome(
                 matches=(),
-                diagnostics=tuple(source_diagnostics),
+                diagnostics=tuple(diagnostics),
                 successful=False,
             )
         source_vector = _folder_vector(source_vectors)
@@ -214,10 +214,40 @@ def compare(
                 successful=False,
             )
 
-    target_image = target_root / "folder.jpg"
+    if not (target_root / "folder.jpg").is_file():
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=tuple(diagnostics),
+        )
+
+    target_images = tuple(
+        path
+        for path in sorted(target_root.iterdir())
+        if path.is_file() and _is_recognized_folder_image(path)
+    )
+    target_vectors: list[Sequence[float]] = []
+    for path in target_images:
+        try:
+            target_vectors.append(recognition.vector_for(path))
+        except RecognitionFailure as error:
+            diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    category="target",
+                    code="target-folder-image-unusable",
+                    path=path,
+                    message=str(error),
+                )
+            )
+    if not target_vectors:
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=tuple(diagnostics),
+        )
+    target_vector = _folder_vector(target_vectors)
     distance = _cosine_distance(
         source_vector,
-        recognition.vector_for(target_image),
+        target_vector,
     )
     matches = (
         (CandidateMatch(identity_path=Path("."), cosine_distance=distance),)
@@ -226,5 +256,5 @@ def compare(
     )
     return ComparisonOutcome(
         matches=matches,
-        diagnostics=tuple(source_diagnostics),
+        diagnostics=tuple(diagnostics),
     )
