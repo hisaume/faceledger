@@ -60,6 +60,25 @@ class ProfileSensitiveRecognition:
         return self._vectors[(image_path, profile_key)]
 
 
+class RecognitionRemovingDescendant:
+    def __init__(
+        self,
+        vectors: dict[Path, tuple[float, ...]],
+        trigger: Path,
+        disappearing_face: Path,
+    ) -> None:
+        self._vectors = vectors
+        self._trigger = trigger
+        self._disappearing_face = disappearing_face
+
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
+        vector = self._vectors[image_path]
+        if image_path == self._trigger and self._disappearing_face.exists():
+            self._disappearing_face.unlink()
+            self._disappearing_face.parent.rmdir()
+        return vector
+
+
 def snapshot_files(root: Path) -> dict[Path, bytes]:
     return {
         path.relative_to(root): path.read_bytes()
@@ -609,7 +628,8 @@ class SinglePersonTargetComparisonTests(unittest.TestCase):
             (target_root / "ordinary.jpg").write_bytes(b"not recognized")
             descendant = target_root / "descendant"
             descendant.mkdir()
-            (descendant / "folder.jpg").write_bytes(b"out of scope")
+            descendant_anchor = descendant / "folder.jpg"
+            descendant_anchor.write_bytes(b"separate descendant target")
 
             outcome = compare(
                 ComparisonRequest(source=source, target_root=target_root),
@@ -619,6 +639,7 @@ class SinglePersonTargetComparisonTests(unittest.TestCase):
                         anchor: (1.0, 0.0),
                         numbered_folder_image: (3.0, 0.0),
                         numbered_face_image: (0.0, 4.0),
+                        descendant_anchor: (0.0, 1.0),
                     }
                 ),
             )
@@ -844,6 +865,342 @@ class MultiPersonTargetComparisonTests(unittest.TestCase):
             )
             self.assertEqual(outcome.diagnostics[0].path, animated_webp)
             self.assertEqual(outcome.diagnostics[0].severity, "warning")
+
+
+class LiveFaceTreeTraversalTests(unittest.TestCase):
+    def test_rejects_a_missing_or_non_directory_target_root_before_recognition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            missing_root = root / "Missing"
+            file_root = root / "not-a-directory"
+            file_root.write_bytes(b"file")
+
+            for invalid_root in (missing_root, file_root):
+                with self.subTest(target_root=invalid_root):
+                    outcome = compare(
+                        ComparisonRequest(source=source, target_root=invalid_root),
+                        DeterministicRecognition({}),
+                    )
+
+                self.assertFalse(outcome.successful)
+                self.assertEqual(outcome.matches, ())
+                self.assertEqual(
+                    [diagnostic.code for diagnostic in outcome.diagnostics],
+                    ["target-root-invalid"],
+                )
+                self.assertEqual(outcome.diagnostics[0].path, invalid_root.resolve())
+
+    def test_rejects_an_unreadable_selected_target_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Unreadable Face Tree"
+            target_root.mkdir()
+            (target_root / "Person.face0.jpg").write_bytes(b"hidden face")
+            target_root.chmod(0)
+
+            try:
+                outcome = compare(
+                    ComparisonRequest(source=source, target_root=target_root),
+                    DeterministicRecognition({}),
+                )
+            finally:
+                target_root.chmod(0o700)
+
+            self.assertFalse(outcome.successful)
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-root-invalid"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, target_root)
+
+    def test_compares_the_selected_root_and_descendants_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Face Tree"
+            target_root.mkdir()
+            root_face = target_root / "Root.face0.jpg"
+            root_face.write_bytes(b"root face")
+            upper_branch = target_root / "Album"
+            upper_branch.mkdir()
+            upper_face = upper_branch / "Shared.face1.jpg"
+            upper_face.write_bytes(b"upper face")
+            lower_branch = target_root / "album"
+            lower_branch.mkdir()
+            lower_face = lower_branch / "Shared.face1.jpg"
+            lower_face.write_bytes(b"lower face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        root_face: (1.0, 0.0),
+                        upper_face: (1.0, 0.0),
+                        lower_face: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                {match.identity_path for match in outcome.matches},
+                {
+                    Path("Root.face0.jpg"),
+                    Path("Album/Shared.face1.jpg"),
+                    Path("album/Shared.face1.jpg"),
+                },
+            )
+
+    def test_single_target_folder_mode_excludes_descendants(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Face Tree"
+            target_root.mkdir()
+            root_face = target_root / "Root.face0.jpg"
+            root_face.write_bytes(b"root face")
+            descendant = target_root / "Descendant"
+            descendant.mkdir()
+            descendant_face = descendant / "Child.face1.jpg"
+            descendant_face.write_bytes(b"descendant face")
+
+            outcome = compare(
+                ComparisonRequest(
+                    source=source,
+                    target_root=target_root,
+                    single_target_folder=True,
+                ),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        root_face: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("Root.face0.jpg")],
+            )
+
+    def test_warns_about_symlinked_descendants_without_following_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Face Tree"
+            target_root.mkdir()
+            usable_face = target_root / "Usable.face2.jpg"
+            usable_face.write_bytes(b"usable face")
+
+            external = root / "External"
+            external.mkdir()
+            external_face = external / "Hidden.face0.jpg"
+            external_face.write_bytes(b"external face")
+            symlinked_directory = target_root / "Linked Album"
+            symlinked_directory.symlink_to(external, target_is_directory=True)
+            symlinked_face = target_root / "Linked.face1.jpg"
+            symlinked_face.symlink_to(external_face)
+            external_cache = root / "external-cache.npy"
+            external_cache.write_bytes(b"cache")
+            symlinked_cache = target_root / "Usable.face2.jpg.facenet512.npy"
+            symlinked_cache.symlink_to(external_cache)
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        usable_face: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("Usable.face2.jpg")],
+            )
+            self.assertEqual(
+                {diagnostic.path for diagnostic in outcome.diagnostics},
+                {symlinked_directory, symlinked_face, symlinked_cache},
+            )
+            self.assertTrue(
+                all(
+                    diagnostic.code == "target-symlink-skipped"
+                    for diagnostic in outcome.diagnostics
+                )
+            )
+
+    def test_excludes_the_single_person_identity_containing_the_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            target_root = Path(temporary_directory) / "Face Tree"
+            target_root.mkdir()
+            source_identity = target_root / "Source Person"
+            source_identity.mkdir()
+            source_anchor = source_identity / "folder.jpg"
+            source_anchor.write_bytes(b"anchor")
+            source = source_identity / "folder1.jpg"
+            source.write_bytes(b"selected source")
+            other_identity = target_root / "Other Person"
+            other_identity.mkdir()
+            other_anchor = other_identity / "folder.jpg"
+            other_anchor.write_bytes(b"other anchor")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        source_anchor: (1.0, 0.0),
+                        other_anchor: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("Other Person")],
+            )
+
+    def test_excludes_only_the_selected_multi_person_face(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            target_root = Path(temporary_directory) / "Event Photos"
+            target_root.mkdir()
+            source = target_root / "Selected.face0.jpg"
+            source.write_bytes(b"selected source")
+            other_face = target_root / "Other.face1.jpg"
+            other_face.write_bytes(b"other face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        other_face: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("Other.face1.jpg")],
+            )
+
+    def test_excludes_a_source_folder_that_is_inside_the_target_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            target_root = Path(temporary_directory) / "Face Tree"
+            target_root.mkdir()
+            source_folder = target_root / "Source Person"
+            source_folder.mkdir()
+            source_anchor = source_folder / "folder.jpg"
+            source_anchor.write_bytes(b"source anchor")
+            other_identity = target_root / "Other Person"
+            other_identity.mkdir()
+            other_anchor = other_identity / "folder.jpg"
+            other_anchor.write_bytes(b"other anchor")
+
+            outcome = compare(
+                ComparisonRequest(
+                    source_folder=source_folder,
+                    target_root=target_root,
+                ),
+                DeterministicRecognition(
+                    {
+                        source_anchor: (1.0, 0.0),
+                        other_anchor: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("Other Person")],
+            )
+
+    def test_warns_when_a_discovered_descendant_disappears(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Face Tree"
+            target_root.mkdir()
+            usable_directory = target_root / "A Usable"
+            usable_directory.mkdir()
+            usable_face = usable_directory / "Person.face0.jpg"
+            usable_face.write_bytes(b"usable face")
+            disappearing_directory = target_root / "Z Disappearing"
+            disappearing_directory.mkdir()
+            disappearing_face = disappearing_directory / "Person.face0.jpg"
+            disappearing_face.write_bytes(b"disappearing face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                RecognitionRemovingDescendant(
+                    vectors={
+                        source: (1.0, 0.0),
+                        usable_face: (1.0, 0.0),
+                    },
+                    trigger=usable_face,
+                    disappearing_face=disappearing_face,
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("A Usable/Person.face0.jpg")],
+            )
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-descendant-unavailable"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, disappearing_directory)
+
+    def test_warns_for_an_unreadable_descendant_and_keeps_other_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Face Tree"
+            target_root.mkdir()
+            usable_directory = target_root / "A Usable"
+            usable_directory.mkdir()
+            usable_face = usable_directory / "Person.face0.jpg"
+            usable_face.write_bytes(b"usable face")
+            unreadable_directory = target_root / "Z Unreadable"
+            unreadable_directory.mkdir()
+            (unreadable_directory / "Person.face0.jpg").write_bytes(b"hidden face")
+            unreadable_directory.chmod(0)
+
+            try:
+                outcome = compare(
+                    ComparisonRequest(source=source, target_root=target_root),
+                    DeterministicRecognition(
+                        {
+                            source: (1.0, 0.0),
+                            usable_face: (1.0, 0.0),
+                        }
+                    ),
+                )
+            finally:
+                unreadable_directory.chmod(0o700)
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("A Usable/Person.face0.jpg")],
+            )
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["target-descendant-unavailable"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, unreadable_directory)
 
 
 if __name__ == "__main__":
