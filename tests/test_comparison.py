@@ -375,7 +375,10 @@ class StandaloneComparisonTests(unittest.TestCase):
                 ["target-cache-invalid"],
             )
             self.assertEqual(outcome.diagnostics[0].path, existing_cache)
-            self.assertEqual(outcome.progress, ())
+            self.assertEqual(
+                [(item.category, item.path) for item in outcome.progress],
+                [("source", source), ("target", target_image)],
+            )
             self.assertEqual(snapshot_files(root), before)
 
     def test_reports_a_successful_comparison_with_no_matches(self) -> None:
