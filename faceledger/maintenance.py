@@ -46,6 +46,13 @@ class CacheBuildOutcome:
     successful: bool = True
 
 
+@dataclass(frozen=True)
+class CacheRebuildOutcome:
+    rebuilt: tuple[Path, ...]
+    diagnostics: tuple[Diagnostic, ...] = ()
+    successful: bool = True
+
+
 def _validated_vector(
     vector: Sequence[float],
     profile: VectorProfile,
@@ -380,5 +387,214 @@ def build_vector_cache(
     return CacheBuildOutcome(
         created=tuple(created),
         retained=tuple(retained),
+        diagnostics=tuple(diagnostics),
+    )
+
+
+def rebuild_vector_cache(
+    request: CacheBuildRequest,
+    recognition: RecognitionAdapter | None = None,
+) -> CacheRebuildOutcome:
+    """Recalculate selected-model cache entries in one maintenance root."""
+
+    if request.model_name not in VECTOR_PROFILES:
+        return CacheRebuildOutcome(
+            rebuilt=(),
+            diagnostics=(
+                Diagnostic(
+                    severity="error",
+                    category="input",
+                    code="recognition-model-unsupported",
+                    path=None,
+                    message=f"Unsupported recognition model: {request.model_name}.",
+                ),
+            ),
+            successful=False,
+        )
+    profile = VECTOR_PROFILES[request.model_name]
+    root = request.root.resolve()
+    root_error: OSError | None = None
+    if not root.is_dir():
+        root_error = NotADirectoryError(
+            f"Maintenance root is not a directory: {root}"
+        )
+    else:
+        try:
+            with os.scandir(root) as entries:
+                next(entries, None)
+        except OSError as error:
+            root_error = error
+    if root_error is not None:
+        return CacheRebuildOutcome(
+            rebuilt=(),
+            diagnostics=(
+                Diagnostic(
+                    severity="error",
+                    category="maintenance",
+                    code="maintenance-root-invalid",
+                    path=root,
+                    message=str(root_error),
+                ),
+            ),
+            successful=False,
+        )
+    diagnostics: list[Diagnostic] = []
+    rebuilt: list[Path] = []
+    if recognition is None:
+        from faceledger.deepface_adapter import DeepFaceRecognition
+
+        def announce_missing_asset(path: Path) -> None:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    category="dependency",
+                    code="model-asset-acquisition",
+                    path=path,
+                    message=(
+                        f"DeepFace will acquire missing dependency asset {path.name}."
+                    ),
+                )
+            )
+
+        recognition = DeepFaceRecognition(announce_missing_asset)
+
+    def asset_failure_outcome(error: AssetAcquisitionFailure) -> CacheRebuildOutcome:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="dependency",
+                code="model-assets-unavailable",
+                path=None,
+                message=str(error),
+            )
+        )
+        return CacheRebuildOutcome(
+            rebuilt=tuple(rebuilt),
+            diagnostics=tuple(diagnostics),
+            successful=False,
+        )
+
+    for _folder, files in _maintenance_folder_views(
+        root,
+        recursive=request.recursive,
+        diagnostics=diagnostics,
+    ):
+        anchor = next((path for path in files if path.name == "folder.jpg"), None)
+        if anchor is not None:
+            cache_path = _cache_path(anchor, profile)
+            if cache_path.is_symlink():
+                continue
+            image_vectors: list[Sequence[float]] = []
+            for image_path in files:
+                if not _is_recognized_folder_image(image_path):
+                    continue
+                if _is_animated_webp(image_path):
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            category="maintenance",
+                            code="animated-webp-unsupported",
+                            path=image_path,
+                            message="Animated WebP face images are not supported.",
+                        )
+                    )
+                    continue
+                try:
+                    image_vectors.append(
+                        _validated_vector(
+                            recognition.vector_for(image_path, profile),
+                            profile,
+                        )
+                    )
+                except AssetAcquisitionFailure as error:
+                    return asset_failure_outcome(error)
+                except (RecognitionFailure, OSError) as error:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            category="maintenance",
+                            code="cache-rebuild-image-unusable",
+                            path=image_path,
+                            message=str(error),
+                        )
+                    )
+            if not image_vectors:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="maintenance",
+                        code="cache-rebuild-identity-unusable",
+                        path=anchor,
+                        message="No usable face images remain for this folder identity.",
+                    )
+                )
+                continue
+            try:
+                _persist_vector(cache_path, _folder_vector(image_vectors))
+            except OSError as error:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="maintenance",
+                        code="cache-rebuild-write-failed",
+                        path=cache_path,
+                        message=str(error),
+                    )
+                )
+            else:
+                rebuilt.append(cache_path)
+            continue
+
+        for image_path in files:
+            if not _is_numbered_face_image(image_path):
+                continue
+            if _is_animated_webp(image_path):
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="maintenance",
+                        code="animated-webp-unsupported",
+                        path=image_path,
+                        message="Animated WebP face images are not supported.",
+                    )
+                )
+                continue
+            try:
+                vector = _validated_vector(
+                    recognition.vector_for(image_path, profile),
+                    profile,
+                )
+            except AssetAcquisitionFailure as error:
+                return asset_failure_outcome(error)
+            except (RecognitionFailure, OSError) as error:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="maintenance",
+                        code="cache-rebuild-image-unusable",
+                        path=image_path,
+                        message=str(error),
+                    )
+                )
+                continue
+            cache_path = _cache_path(image_path, profile)
+            if cache_path.is_symlink():
+                continue
+            try:
+                _persist_vector(cache_path, vector)
+            except OSError as error:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        category="maintenance",
+                        code="cache-rebuild-write-failed",
+                        path=cache_path,
+                        message=str(error),
+                    )
+                )
+                continue
+            rebuilt.append(cache_path)
+    return CacheRebuildOutcome(
+        rebuilt=tuple(rebuilt),
         diagnostics=tuple(diagnostics),
     )
