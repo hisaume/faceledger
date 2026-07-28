@@ -1,0 +1,342 @@
+import os
+import sys
+import tempfile
+import types
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import numpy as np
+from PIL import Image
+
+from faceledger.comparison import RecognitionFailure
+from faceledger.maintenance import CacheBuildRequest, build_vector_cache
+
+
+def unit_vector(index: int = 0) -> tuple[float, ...]:
+    return tuple(1.0 if position == index else 0.0 for position in range(512))
+
+
+class DeterministicRecognition:
+    def __init__(self, vectors: dict[Path, tuple[float, ...]]) -> None:
+        self._vectors = vectors
+
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
+        return self._vectors[image_path]
+
+
+class RecognitionWithFailures(DeterministicRecognition):
+    def __init__(
+        self,
+        vectors: dict[Path, tuple[float, ...]],
+        failures: dict[Path, str],
+    ) -> None:
+        super().__init__(vectors)
+        self._failures = failures
+
+    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
+        if image_path in self._failures:
+            raise RecognitionFailure(self._failures[image_path])
+        return super().vector_for(image_path, profile)
+
+
+class CacheBuildTests(unittest.TestCase):
+    def test_public_build_uses_the_locked_deepface_adapter_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            face = root / "Person.face0.jpg"
+            face.write_bytes(b"face")
+            deepface_home = temporary_path / "deepface-home"
+            weights = deepface_home / ".deepface" / "weights"
+            weights.mkdir(parents=True)
+            (weights / "facenet512_weights.h5").write_bytes(b"model")
+            (weights / "retinaface.h5").write_bytes(b"detector")
+            deepface_module = types.ModuleType("deepface")
+            deepface_module.DeepFace = types.SimpleNamespace(
+                represent=lambda **_arguments: [{"embedding": unit_vector()}]
+            )
+
+            with (
+                patch.dict(os.environ, {"DEEPFACE_HOME": str(deepface_home)}),
+                patch.dict(sys.modules, {"deepface": deepface_module}),
+            ):
+                outcome = build_vector_cache(CacheBuildRequest(root=root))
+
+            cache = root / "Person.face0.jpg.facenet512.npy"
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, (cache,))
+            np.testing.assert_array_equal(np.load(cache), unit_vector())
+
+    def test_rejects_an_unreadable_selected_maintenance_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Unreadable Face Tree"
+            root.mkdir()
+            (root / "Person.face0.jpg").write_bytes(b"face")
+            root.chmod(0)
+
+            try:
+                outcome = build_vector_cache(
+                    CacheBuildRequest(root=root),
+                    DeterministicRecognition({}),
+                )
+            finally:
+                root.chmod(0o700)
+
+            self.assertFalse(outcome.successful)
+            self.assertEqual(outcome.created, ())
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["maintenance-root-invalid"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, root)
+
+    def test_skips_a_symlinked_cache_entry_without_replacing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            face = root / "Person.face0.jpg"
+            face.write_bytes(b"face")
+            outside_cache = temporary_path / "outside.npy"
+            outside_cache.write_bytes(b"outside cache")
+            cache = root / "Person.face0.jpg.facenet512.npy"
+            cache.symlink_to(outside_cache)
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(root=root),
+                DeterministicRecognition({}),
+            )
+
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, ())
+            self.assertTrue(cache.is_symlink())
+            self.assertEqual(outside_cache.read_bytes(), b"outside cache")
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["maintenance-symlink-skipped"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, cache)
+
+    def test_builds_static_webp_and_skips_animated_webp(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Face Tree"
+            root.mkdir()
+            static_webp = root / "Still.face0.webp"
+            Image.new("RGB", (2, 2), "red").save(static_webp, format="WEBP")
+            animated_webp = root / "Motion.face1.webp"
+            frames = [
+                Image.new("RGB", (2, 2), "red"),
+                Image.new("RGB", (2, 2), "blue"),
+            ]
+            frames[0].save(
+                animated_webp,
+                format="WEBP",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100,
+                loop=0,
+            )
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(root=root),
+                DeterministicRecognition({static_webp: unit_vector()}),
+            )
+
+            static_cache = root / "Still.face0.webp.facenet512.npy"
+            animated_cache = root / "Motion.face1.webp.facenet512.npy"
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, (static_cache,))
+            self.assertFalse(animated_cache.exists())
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["animated-webp-unsupported"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, animated_webp)
+
+    def test_builds_only_the_selected_model_in_the_selected_root_by_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Face Tree"
+            root.mkdir()
+            root_face = root / "Root.face0.jpg"
+            root_face.write_bytes(b"root face")
+            other_model_cache = root / "Root.face0.jpg.arcface.npy"
+            other_model_cache.write_bytes(b"existing ArcFace cache")
+            descendant = root / "Descendant"
+            descendant.mkdir()
+            descendant_face = descendant / "Nested.face1.jpg"
+            descendant_face.write_bytes(b"descendant face")
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(root=root, model_name="Facenet512"),
+                DeterministicRecognition({root_face: unit_vector()}),
+            )
+
+            created_cache = root / "Root.face0.jpg.facenet512.npy"
+            descendant_cache = descendant / "Nested.face1.jpg.facenet512.npy"
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, (created_cache,))
+            np.testing.assert_array_equal(np.load(created_cache), unit_vector())
+            self.assertFalse(descendant_cache.exists())
+            self.assertEqual(
+                other_model_cache.read_bytes(),
+                b"existing ArcFace cache",
+            )
+
+    def test_recursive_build_retains_compatible_entries_and_adds_descendants(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Face Tree"
+            root.mkdir()
+            root_face = root / "Root.face0.jpg"
+            root_face.write_bytes(b"root face")
+            compatible_cache = root / "Root.face0.jpg.facenet512.npy"
+            np.save(compatible_cache, np.asarray(unit_vector(0)))
+            before = compatible_cache.read_bytes()
+            descendant = root / "Descendant"
+            descendant.mkdir()
+            descendant_face = descendant / "Nested.face1.jpg"
+            descendant_face.write_bytes(b"descendant face")
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(
+                    root=root,
+                    model_name="Facenet512",
+                    recursive=True,
+                ),
+                DeterministicRecognition({descendant_face: unit_vector(1)}),
+            )
+
+            descendant_cache = descendant / "Nested.face1.jpg.facenet512.npy"
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.retained, (compatible_cache,))
+            self.assertEqual(outcome.created, (descendant_cache,))
+            self.assertEqual(compatible_cache.read_bytes(), before)
+            np.testing.assert_array_equal(
+                np.load(descendant_cache),
+                unit_vector(1),
+            )
+
+    def test_warns_and_replaces_every_structurally_invalid_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Face Tree"
+            root.mkdir()
+            faces = tuple(root / f"Person.face{number}.jpg" for number in range(3))
+            for face in faces:
+                face.write_bytes(b"face")
+            caches = tuple(
+                root / f"Person.face{number}.jpg.facenet512.npy"
+                for number in range(3)
+            )
+            caches[0].write_bytes(b"not an NPY file")
+            np.save(caches[1], np.asarray(["not numeric"] * 512))
+            np.save(caches[2], np.asarray([1.0, 0.0]))
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(root=root),
+                DeterministicRecognition(
+                    {face: unit_vector(number) for number, face in enumerate(faces)}
+                ),
+            )
+
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, caches)
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["cache-entry-invalid"] * 3,
+            )
+            self.assertEqual(
+                {diagnostic.path for diagnostic in outcome.diagnostics},
+                set(caches),
+            )
+            self.assertTrue(
+                all(diagnostic.severity == "warning" for diagnostic in outcome.diagnostics)
+            )
+            for number, cache in enumerate(caches):
+                np.testing.assert_array_equal(np.load(cache), unit_vector(number))
+
+    def test_builds_one_folder_cache_from_the_remaining_usable_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Single Person"
+            root.mkdir()
+            anchor = root / "folder.jpg"
+            anchor.write_bytes(b"unusable anchor")
+            numbered = root / "folder2.jpg"
+            numbered.write_bytes(b"usable numbered image")
+            face = root / "Portrait.face8.webp"
+            face.write_bytes(b"usable face image")
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(root=root),
+                RecognitionWithFailures(
+                    vectors={
+                        numbered: unit_vector(0),
+                        face: unit_vector(1),
+                    },
+                    failures={anchor: "No face found"},
+                ),
+            )
+
+            folder_cache = root / "folder.jpg.facenet512.npy"
+            expected = np.asarray(
+                tuple(
+                    2**-0.5 if position in {0, 1} else 0.0
+                    for position in range(512)
+                )
+            )
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, (folder_cache,))
+            np.testing.assert_allclose(np.load(folder_cache), expected)
+            self.assertFalse((root / "folder2.jpg.facenet512.npy").exists())
+            self.assertFalse((root / "Portrait.face8.webp.facenet512.npy").exists())
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["cache-build-image-unusable"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, anchor)
+
+    def test_warns_for_item_failures_and_continues_building(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Face Tree"
+            root.mkdir()
+            unusable_face = root / "A.face0.jpg"
+            unusable_face.write_bytes(b"unusable")
+            unwritable_face = root / "B.face1.jpg"
+            unwritable_face.write_bytes(b"usable but cache path is blocked")
+            blocked_cache = root / "B.face1.jpg.facenet512.npy"
+            blocked_cache.mkdir()
+            usable_face = root / "C.face2.jpg"
+            usable_face.write_bytes(b"usable")
+
+            outcome = build_vector_cache(
+                CacheBuildRequest(root=root),
+                RecognitionWithFailures(
+                    vectors={
+                        unwritable_face: unit_vector(1),
+                        usable_face: unit_vector(2),
+                    },
+                    failures={unusable_face: "Expected one face but found two"},
+                ),
+            )
+
+            usable_cache = root / "C.face2.jpg.facenet512.npy"
+            self.assertTrue(outcome.successful)
+            self.assertEqual(outcome.created, (usable_cache,))
+            np.testing.assert_array_equal(np.load(usable_cache), unit_vector(2))
+            self.assertEqual(
+                [diagnostic.code for diagnostic in outcome.diagnostics],
+                ["cache-build-image-unusable", "cache-build-write-failed"],
+            )
+            self.assertEqual(outcome.diagnostics[0].path, unusable_face)
+            self.assertEqual(outcome.diagnostics[1].path, blocked_cache)
+            self.assertTrue(
+                all(diagnostic.severity == "warning" for diagnostic in outcome.diagnostics)
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
