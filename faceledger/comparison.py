@@ -6,7 +6,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Protocol, Sequence
+from typing import Callable, Iterator, Protocol, Sequence
 
 import numpy as np
 from PIL import Image
@@ -75,11 +75,22 @@ class ComparisonMetadata:
 
 
 @dataclass(frozen=True)
+class ProgressNotification:
+    """Presentation-neutral notice for one completed uncached item."""
+
+    category: str
+    completed_items: int
+    path: Path
+    message: str
+
+
+@dataclass(frozen=True)
 class ComparisonOutcome:
     matches: tuple[CandidateMatch, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
-    progress: tuple[object, ...] = ()
+    progress: tuple[ProgressNotification, ...] = ()
     successful: bool = True
+    complete: bool = True
     target_identities_compared: int = 0
     metadata: ComparisonMetadata | None = None
 
@@ -251,6 +262,9 @@ def _target_folder_views(
 def compare(
     request: ComparisonRequest,
     recognition: RecognitionAdapter | None = None,
+    *,
+    on_progress: Callable[[ProgressNotification], None] | None = None,
+    cancellation_requested: Callable[[], bool] | None = None,
 ) -> ComparisonOutcome:
     """Compare one standalone source with the selected root identity."""
 
@@ -383,6 +397,7 @@ def compare(
         )
 
     diagnostics: list[Diagnostic] = []
+    progress: list[ProgressNotification] = []
     if recognition is None:
         from faceledger.deepface_adapter import DeepFaceRecognition
 
@@ -401,6 +416,20 @@ def compare(
 
         recognition = DeepFaceRecognition(announce_missing_asset)
 
+    def calculate_vector(path: Path, category: str) -> Sequence[float]:
+        try:
+            return recognition.vector_for(path, profile)
+        finally:
+            notification = ProgressNotification(
+                category=category,
+                completed_items=len(progress) + 1,
+                path=path,
+                message=f"Completed uncached {category} image: {path}",
+            )
+            progress.append(notification)
+            if on_progress is not None:
+                on_progress(notification)
+
     def asset_failure_outcome(error: AssetAcquisitionFailure) -> ComparisonOutcome:
         diagnostics.append(
             Diagnostic(
@@ -414,8 +443,46 @@ def compare(
         return ComparisonOutcome(
             matches=(),
             diagnostics=tuple(diagnostics),
+            progress=tuple(progress),
             successful=False,
+            metadata=metadata,
         )
+
+    resolved_source = source if source is not None else source_folder
+    if resolved_source is None:
+        raise AssertionError("Validated comparison has no resolved source.")
+    metadata = ComparisonMetadata(
+        source=resolved_source,
+        target_root=target_root,
+        model_name=profile.model_name,
+        threshold=active_threshold,
+    )
+
+    def is_cancelled() -> bool:
+        return cancellation_requested is not None and cancellation_requested()
+
+    def cancelled_outcome(compared: int = 0) -> ComparisonOutcome:
+        return ComparisonOutcome(
+            matches=(),
+            diagnostics=tuple(diagnostics)
+            + (
+                Diagnostic(
+                    severity="info",
+                    category="operation",
+                    code="comparison-cancelled",
+                    path=None,
+                    message="Comparison cancelled; the operation is incomplete.",
+                ),
+            ),
+            progress=tuple(progress),
+            successful=False,
+            complete=False,
+            target_identities_compared=compared,
+            metadata=metadata,
+        )
+
+    if is_cancelled():
+        return cancelled_outcome()
 
     if source_folder is not None:
         source_vector = (
@@ -436,8 +503,10 @@ def compare(
             )
             source_vectors: list[Sequence[float]] = []
             for path in source_images:
+                if is_cancelled():
+                    return cancelled_outcome()
                 try:
-                    source_vectors.append(recognition.vector_for(path, profile))
+                    source_vectors.append(calculate_vector(path, "source"))
                 except AssetAcquisitionFailure as error:
                     return asset_failure_outcome(error)
                 except RecognitionFailure as error:
@@ -466,12 +535,14 @@ def compare(
                 return ComparisonOutcome(
                     matches=(),
                     diagnostics=tuple(diagnostics),
+                    progress=tuple(progress),
                     successful=False,
+                    metadata=metadata,
                 )
             source_vector = _folder_vector(source_vectors)
     else:
         try:
-            source_vector = recognition.vector_for(source, profile)
+            source_vector = calculate_vector(source, "source")
         except AssetAcquisitionFailure as error:
             return asset_failure_outcome(error)
         except RecognitionFailure as error:
@@ -486,7 +557,9 @@ def compare(
                         message=str(error),
                     ),
                 ),
+                progress=tuple(progress),
                 successful=False,
+                metadata=metadata,
             )
 
     discovered_identities: list[tuple[Path, Sequence[float]]] = []
@@ -495,6 +568,8 @@ def compare(
         recursive=not request.single_target_folder,
         diagnostics=diagnostics,
     ):
+        if is_cancelled():
+            return cancelled_outcome(len(discovered_identities))
         target_image = next(
             (
                 path
@@ -530,8 +605,10 @@ def compare(
             )
             target_vectors: list[Sequence[float]] = []
             for path in target_images:
+                if is_cancelled():
+                    return cancelled_outcome(len(discovered_identities))
                 try:
-                    target_vectors.append(recognition.vector_for(path, profile))
+                    target_vectors.append(calculate_vector(path, "target"))
                 except AssetAcquisitionFailure as error:
                     return asset_failure_outcome(error)
                 except (RecognitionFailure, OSError) as error:
@@ -554,6 +631,8 @@ def compare(
             continue
 
         for path in regular_entries:
+            if is_cancelled():
+                return cancelled_outcome(len(discovered_identities))
             if not _is_numbered_face_image(path):
                 continue
             if source is not None and path == source:
@@ -581,7 +660,7 @@ def compare(
                     else None
                 )
                 if target_vector is None:
-                    target_vector = recognition.vector_for(path, profile)
+                    target_vector = calculate_vector(path, "target")
             except AssetAcquisitionFailure as error:
                 return asset_failure_outcome(error)
             except (RecognitionFailure, OSError) as error:
@@ -598,6 +677,8 @@ def compare(
                 discovered_identities.append(
                     (path.relative_to(target_root), target_vector)
                 )
+    if is_cancelled():
+        return cancelled_outcome(len(discovered_identities))
     target_identities = tuple(discovered_identities)
     matches = tuple(
         sorted(
@@ -610,17 +691,10 @@ def compare(
             key=lambda match: match.cosine_distance,
         )
     )
-    resolved_source = source if source is not None else source_folder
-    if resolved_source is None:
-        raise AssertionError("Validated comparison has no resolved source.")
     return ComparisonOutcome(
         matches=matches,
         diagnostics=tuple(diagnostics),
+        progress=tuple(progress),
         target_identities_compared=len(target_identities),
-        metadata=ComparisonMetadata(
-            source=resolved_source,
-            target_root=target_root,
-            model_name=profile.model_name,
-            threshold=active_threshold,
-        ),
+        metadata=metadata,
     )
