@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -62,6 +64,46 @@ def _write_manifest(path: Path, entries: list[dict[str, object]]) -> None:
         os.replace(temporary_path, path)
     except BaseException:
         temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _files_match(source: Path, copied: Path) -> bool:
+    with source.open("rb") as source_file, copied.open("rb") as copied_file:
+        while True:
+            source_chunk = source_file.read(1024 * 1024)
+            copied_chunk = copied_file.read(1024 * 1024)
+            if source_chunk != copied_chunk:
+                return False
+            if not source_chunk:
+                return True
+
+
+def _copy_across_filesystems(source: Path, destination: Path) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=destination.parent,
+    )
+    temporary_path = Path(temporary_name)
+    destination_installed = False
+    try:
+        with source.open("rb") as source_file, os.fdopen(
+            descriptor,
+            "wb",
+        ) as copied_file:
+            shutil.copyfileobj(source_file, copied_file)
+            copied_file.flush()
+            os.fsync(copied_file.fileno())
+        shutil.copystat(source, temporary_path)
+        if not _files_match(source, temporary_path):
+            raise OSError("Copied cache verification failed.")
+        os.replace(temporary_path, destination)
+        destination_installed = True
+        source.unlink()
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        if destination_installed:
+            destination.unlink(missing_ok=True)
         raise
 
 
@@ -210,10 +252,39 @@ def trash_vector_cache(
     _write_manifest(manifest_path, entries)
 
     moved: list[Path] = []
-    for source, destination in zip(selected, destinations, strict=True):
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        source.rename(destination)
+    for index, (source, destination) in enumerate(
+        zip(selected, destinations, strict=True)
+    ):
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.rename(destination)
+        except OSError as error:
+            if error.errno == errno.EXDEV:
+                try:
+                    _copy_across_filesystems(source, destination)
+                except OSError as copy_error:
+                    error = copy_error
+                else:
+                    moved.append(destination)
+                    entries[index]["status"] = "moved"
+                    _write_manifest(manifest_path, entries)
+                    continue
+            entries[index]["status"] = "failed"
+            entries[index]["reason"] = str(error)
+            diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    category="maintenance",
+                    code="trash-entry-move-failed",
+                    path=source,
+                    message=str(error),
+                )
+            )
+            _write_manifest(manifest_path, entries)
+            continue
         moved.append(destination)
+        entries[index]["status"] = "moved"
+        _write_manifest(manifest_path, entries)
 
     return TrashOutcome(
         action_directory=action_directory,
