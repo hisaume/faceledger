@@ -161,15 +161,16 @@ Implementation happens per-ticket in Beads, called a cycle.
 
 ### Cycle start
 
-At the start of each ticket, create and check out a new ticket-specific Git branch. Work for different tickets must not share a branch.
+- Check remote to see if PR has succeeded for previous tickets, and update Beads accordingly.
+- Check and fast-forward `main` branch as needed.
+- At the start of each ticket, create and check out a new ticket-specific Git branch. Work for different tickets must not share a branch. You may name the branch without a prefix i.e. `ticket/fl-repo-60a.17-trash-cache` should just be `fl-repo-60a.17-trash-cache` during the initial development of v.1.
 
 ### Cycle end
 
 - Make a commit with a ticket name and a very short description.
 - Push the branch to remote with `git push -u origin HEAD`.
 - Report errors and standby, if necessary. Otherwise move on.
-- Check remote to see if PR has succeeded for previous tickets, and update Beads accordingly.
-- Report status by stating the next tickets which are open or blocked. Also report the tickets which previously became open, and has remained open, so that it is clear which ones just became open and which ones have been open all along.
+- Report status by stating the next tickets which are open or blocked. Distinguish the tickets which previously became open and has remained open, from the ones which has become unlocked more recently.
 - Standby.
 
 ### Live Scoping Doc during Implementation
