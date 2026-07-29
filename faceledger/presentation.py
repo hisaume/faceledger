@@ -29,7 +29,7 @@ def render_matches(outcome: ComparisonOutcome) -> str:
     identity_column_width = identity_width + 2
     lines = [f"{'Rank':<6}{'Identity':<{identity_column_width}}Cosine distance\n"]
     lines.extend(
-        f"{rank:<6}{str(match.identity_path):<{identity_column_width}}"
+        f"{rank:<6}{match.identity_path!s:<{identity_column_width}}"
         f"{match.cosine_distance:.6f}\n"
         for rank, match in enumerate(outcome.matches, start=1)
     )
@@ -147,8 +147,9 @@ def present_comparison(
 ) -> int:
     """Write one comparison outcome to separated CLI streams."""
 
-    for diagnostic in outcome.diagnostics:
-        stderr.write(_render_diagnostic(diagnostic))
+    stderr.writelines(
+        _render_diagnostic(diagnostic) for diagnostic in outcome.diagnostics
+    )
 
     if not outcome.successful:
         return 1

@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 QUALIFICATION_COMMAND = REPOSITORY_ROOT / "scripts" / "qualify_runtime.py"
 
@@ -125,8 +124,7 @@ def open(path):
                 encoding="utf-8",
             )
             (tensorflow_distribution_path / "WHEEL").write_text(
-                "Wheel-Version: 1.0\n"
-                "Tag: cp312-cp312-manylinux_2_27_x86_64\n",
+                "Wheel-Version: 1.0\nTag: cp312-cp312-manylinux_2_27_x86_64\n",
                 encoding="utf-8",
             )
             tf_keras_distribution_path = adapter_path / "tf_keras-2.21.0.dist-info"
@@ -141,7 +139,11 @@ def open(path):
             )
 
             images = {}
-            for image_format, suffix in (("JPEG", ".jpg"), ("PNG", ".png"), ("WEBP", ".webp")):
+            for image_format, suffix in (
+                ("JPEG", ".jpg"),
+                ("PNG", ".png"),
+                ("WEBP", ".webp"),
+            ):
                 image_path = temporary_path / f"face{suffix}"
                 image_path.write_bytes(b"qualification fixture")
                 images[image_format] = image_path

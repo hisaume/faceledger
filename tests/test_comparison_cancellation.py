@@ -35,9 +35,7 @@ class ComparisonCancellationTests(unittest.TestCase):
 
             outcome = compare(
                 ComparisonRequest(source=source, target_root=target_root),
-                RecordingRecognition(
-                    {source: (1.0, 0.0), target: (1.0, 0.0)}
-                ),
+                RecordingRecognition({source: (1.0, 0.0), target: (1.0, 0.0)}),
                 on_progress=observed.append,
             )
 
@@ -52,7 +50,9 @@ class ComparisonCancellationTests(unittest.TestCase):
         self.assertEqual(outcome.diagnostics, ())
         self.assertEqual(len(outcome.matches), 1)
 
-    def test_cancellation_stops_at_the_next_item_boundary_and_hides_candidates(self) -> None:
+    def test_cancellation_stops_at_the_next_item_boundary_and_hides_candidates(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             source = root / "source.jpg"

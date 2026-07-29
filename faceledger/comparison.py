@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, Protocol, Sequence
+from typing import Protocol
 
 import numpy as np
 from PIL import Image
@@ -16,6 +17,8 @@ from faceledger.vector_profiles import (
     VECTOR_PROFILES,
     VectorProfile,
 )
+
+type Embedding = tuple[float, ...]
 
 
 class RecognitionAdapter(Protocol):
@@ -95,7 +98,9 @@ class ComparisonOutcome:
     metadata: ComparisonMetadata | None = None
 
 
-def _cosine_distance(left: Sequence[float], right: Sequence[float]) -> float:
+def _cosine_distance(left: Embedding, right: Embedding) -> float:
+    """Calculate cosine distance between two equal-length vectors."""
+
     dot_product = sum(a * b for a, b in zip(left, right, strict=True))
     left_length = math.sqrt(sum(value * value for value in left))
     right_length = math.sqrt(sum(value * value for value in right))
@@ -103,6 +108,8 @@ def _cosine_distance(left: Sequence[float], right: Sequence[float]) -> float:
 
 
 def _is_recognized_folder_image(path: Path) -> bool:
+    """Identify images that contribute to a single-person folder vector."""
+
     if path.name == "folder.jpg":
         return True
     suffix = path.suffix.lower()
@@ -113,6 +120,8 @@ def _is_recognized_folder_image(path: Path) -> bool:
 
 
 def _is_numbered_face_image(path: Path) -> bool:
+    """Identify one-digit numbered face images using v1 naming rules."""
+
     suffix = path.suffix.lower()
     stem = path.stem
     return suffix in {".jpg", ".jpeg", ".png", ".webp"} and any(
@@ -121,21 +130,29 @@ def _is_numbered_face_image(path: Path) -> bool:
 
 
 def _is_animated_webp(path: Path) -> bool:
+    """Detect animated WebP without classifying unreadable files as animated."""
+
     if path.suffix.lower() != ".webp":
         return False
     try:
         with Image.open(path) as image:
-            return bool(getattr(image, "is_animated", False)) or image.n_frames > 1
+            return bool(getattr(image, "is_animated", False)) or (
+                getattr(image, "n_frames", 1) > 1
+            )
     except OSError:
         return False
 
 
-def _normalized(vector: Sequence[float]) -> tuple[float, ...]:
+def _normalized(vector: Embedding) -> Embedding:
+    """Return a unit-length copy of a vector."""
+
     length = math.sqrt(sum(value * value for value in vector))
     return tuple(value / length for value in vector)
 
 
-def _folder_vector(vectors: Sequence[Sequence[float]]) -> tuple[float, ...]:
+def _folder_vector(vectors: Sequence[Embedding]) -> Embedding:
+    """Build the normalized equal-weight centroid for one folder identity."""
+
     normalized_vectors = [_normalized(vector) for vector in vectors]
     centroid = tuple(
         sum(values) / len(normalized_vectors)
@@ -151,7 +168,9 @@ def _cache_path(image_path: Path, profile: VectorProfile) -> Path:
 def _load_cached_vector(
     image_path: Path,
     profile: VectorProfile,
-) -> tuple[float, ...] | None:
+) -> Embedding | None:
+    """Load a cache vector only when it matches the selected profile."""
+
     cache_path = _cache_path(image_path, profile)
     if cache_path.is_symlink() or not cache_path.is_file():
         return None
@@ -181,7 +200,9 @@ def _reuse_cached_vector(
     profile: VectorProfile,
     diagnostics: list[Diagnostic],
     category: str,
-) -> tuple[float, ...] | None:
+) -> Embedding | None:
+    """Reuse a compatible cache or warn and fall back to calculation."""
+
     try:
         return _load_cached_vector(image_path, profile)
     except InvalidCacheEntry as error:
@@ -218,6 +239,8 @@ def _target_folder_views(
     recursive: bool,
     diagnostics: list[Diagnostic],
 ) -> Iterator[tuple[Path, tuple[Path, ...]]]:
+    """Yield target-folder file views without following discovered symlinks."""
+
     pending = [target_root]
     while pending:
         target_folder = pending.pop()
@@ -416,9 +439,11 @@ def compare(
 
         recognition = DeepFaceRecognition(announce_missing_asset)
 
-    def calculate_vector(path: Path, category: str) -> Sequence[float]:
+    def calculate_vector(path: Path, category: str) -> Embedding:
+        """Calculate an uncached vector and emit its completion progress."""
+
         try:
-            return recognition.vector_for(path, profile)
+            return tuple(recognition.vector_for(path, profile))
         finally:
             notification = ProgressNotification(
                 category=category,
@@ -431,6 +456,8 @@ def compare(
                 on_progress(notification)
 
     def asset_failure_outcome(error: AssetAcquisitionFailure) -> ComparisonOutcome:
+        """Translate asset failure into the comparison operation contract."""
+
         diagnostics.append(
             Diagnostic(
                 severity="error",
@@ -462,6 +489,8 @@ def compare(
         return cancellation_requested is not None and cancellation_requested()
 
     def cancelled_outcome(compared: int = 0) -> ComparisonOutcome:
+        """Discard candidates and report an incomplete comparison."""
+
         return ComparisonOutcome(
             matches=(),
             diagnostics=tuple(diagnostics)
@@ -484,8 +513,9 @@ def compare(
     if is_cancelled():
         return cancelled_outcome()
 
+    source_vector: Embedding
     if source_folder is not None:
-        source_vector = (
+        cached_source_vector = (
             _reuse_cached_vector(
                 source_folder / "folder.jpg",
                 profile,
@@ -495,13 +525,13 @@ def compare(
             if request.reuse_cache
             else None
         )
-        if source_vector is None:
+        if cached_source_vector is None:
             source_images = tuple(
                 path
                 for path in sorted(source_folder.iterdir())
                 if path.is_file() and _is_recognized_folder_image(path)
             )
-            source_vectors: list[Sequence[float]] = []
+            source_vectors: list[Embedding] = []
             for path in source_images:
                 if is_cancelled():
                     return cancelled_outcome()
@@ -540,7 +570,10 @@ def compare(
                     metadata=metadata,
                 )
             source_vector = _folder_vector(source_vectors)
+        else:
+            source_vector = cached_source_vector
     else:
+        assert source is not None
         try:
             source_vector = calculate_vector(source, "source")
         except AssetAcquisitionFailure as error:
@@ -548,7 +581,8 @@ def compare(
         except RecognitionFailure as error:
             return ComparisonOutcome(
                 matches=(),
-                diagnostics=tuple(diagnostics) + (
+                diagnostics=tuple(diagnostics)
+                + (
                     Diagnostic(
                         severity="error",
                         category="source",
@@ -562,7 +596,7 @@ def compare(
                 metadata=metadata,
             )
 
-    discovered_identities: list[tuple[Path, Sequence[float]]] = []
+    discovered_identities: list[tuple[Path, Embedding]] = []
     for target_folder, regular_entries in _target_folder_views(
         target_root,
         recursive=not request.single_target_folder,
@@ -571,11 +605,7 @@ def compare(
         if is_cancelled():
             return cancelled_outcome(len(discovered_identities))
         target_image = next(
-            (
-                path
-                for path in regular_entries
-                if path.name == "folder.jpg"
-            ),
+            (path for path in regular_entries if path.name == "folder.jpg"),
             None,
         )
         if target_image is not None:
@@ -583,7 +613,7 @@ def compare(
                 source is not None and source.parent == target_folder
             ):
                 continue
-            target_vector = (
+            cached_target_vector = (
                 _reuse_cached_vector(
                     target_image,
                     profile,
@@ -593,17 +623,15 @@ def compare(
                 if request.reuse_cache
                 else None
             )
-            if target_vector is not None:
+            if cached_target_vector is not None:
                 discovered_identities.append(
-                    (target_folder.relative_to(target_root), target_vector)
+                    (target_folder.relative_to(target_root), cached_target_vector)
                 )
                 continue
             target_images = tuple(
-                path
-                for path in regular_entries
-                if _is_recognized_folder_image(path)
+                path for path in regular_entries if _is_recognized_folder_image(path)
             )
-            target_vectors: list[Sequence[float]] = []
+            target_vectors: list[Embedding] = []
             for path in target_images:
                 if is_cancelled():
                     return cancelled_outcome(len(discovered_identities))
@@ -649,7 +677,7 @@ def compare(
                 )
                 continue
             try:
-                target_vector = (
+                cached_target_vector = (
                     _reuse_cached_vector(
                         path,
                         profile,
@@ -659,8 +687,10 @@ def compare(
                     if request.reuse_cache
                     else None
                 )
-                if target_vector is None:
+                if cached_target_vector is None:
                     target_vector = calculate_vector(path, "target")
+                else:
+                    target_vector = cached_target_vector
             except AssetAcquisitionFailure as error:
                 return asset_failure_outcome(error)
             except (RecognitionFailure, OSError) as error:

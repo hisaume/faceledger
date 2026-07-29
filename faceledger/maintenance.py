@@ -5,15 +5,16 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Sequence
 
 import numpy as np
 
 from faceledger.comparison import (
     AssetAcquisitionFailure,
     Diagnostic,
+    Embedding,
     InvalidCacheEntry,
     RecognitionAdapter,
     RecognitionFailure,
@@ -56,11 +57,15 @@ class CacheRebuildOutcome:
 def _validated_vector(
     vector: Sequence[float],
     profile: VectorProfile,
-) -> tuple[float, ...]:
+) -> Embedding:
+    """Produce a finite vector matching the selected profile."""
+
     try:
         values = tuple(float(value) for value in vector)
     except (TypeError, ValueError, OverflowError) as error:
-        raise RecognitionFailure("Recognition returned a non-numeric vector.") from error
+        raise RecognitionFailure(
+            "Recognition returned a non-numeric vector."
+        ) from error
     if len(values) != profile.expected_dimensions:
         raise RecognitionFailure(
             f"Expected {profile.expected_dimensions} vector dimensions; "
@@ -72,6 +77,8 @@ def _validated_vector(
 
 
 def _persist_vector(cache_path: Path, vector: Sequence[float]) -> None:
+    """Atomically install a fully flushed vector-cache entry."""
+
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{cache_path.name}.",
         suffix=".tmp",
@@ -94,6 +101,8 @@ def _maintenance_folder_views(
     recursive: bool,
     diagnostics: list[Diagnostic],
 ) -> Iterator[tuple[Path, tuple[Path, ...]]]:
+    """Yield scoped maintenance files without following discovered symlinks."""
+
     pending = [root]
     while pending:
         folder = pending.pop()
@@ -168,9 +177,7 @@ def build_vector_cache(
     root = request.root.resolve()
     root_error: OSError | None = None
     if not root.is_dir():
-        root_error = NotADirectoryError(
-            f"Maintenance root is not a directory: {root}"
-        )
+        root_error = NotADirectoryError(f"Maintenance root is not a directory: {root}")
     else:
         try:
             with os.scandir(root) as entries:
@@ -214,6 +221,8 @@ def build_vector_cache(
         recognition = DeepFaceRecognition(announce_missing_asset)
 
     def asset_failure_outcome(error: AssetAcquisitionFailure) -> CacheBuildOutcome:
+        """Translate asset failure into the cache-build operation contract."""
+
         diagnostics.append(
             Diagnostic(
                 severity="error",
@@ -257,7 +266,7 @@ def build_vector_cache(
                 retained.append(cache_path)
                 continue
 
-            image_vectors: list[Sequence[float]] = []
+            image_vectors: list[Embedding] = []
             for image_path in files:
                 if not _is_recognized_folder_image(image_path):
                     continue
@@ -415,9 +424,7 @@ def rebuild_vector_cache(
     root = request.root.resolve()
     root_error: OSError | None = None
     if not root.is_dir():
-        root_error = NotADirectoryError(
-            f"Maintenance root is not a directory: {root}"
-        )
+        root_error = NotADirectoryError(f"Maintenance root is not a directory: {root}")
     else:
         try:
             with os.scandir(root) as entries:
@@ -459,6 +466,8 @@ def rebuild_vector_cache(
         recognition = DeepFaceRecognition(announce_missing_asset)
 
     def asset_failure_outcome(error: AssetAcquisitionFailure) -> CacheRebuildOutcome:
+        """Translate asset failure into the cache-rebuild operation contract."""
+
         diagnostics.append(
             Diagnostic(
                 severity="error",
@@ -484,7 +493,7 @@ def rebuild_vector_cache(
             cache_path = _cache_path(anchor, profile)
             if cache_path.is_symlink():
                 continue
-            image_vectors: list[Sequence[float]] = []
+            image_vectors: list[Embedding] = []
             for image_path in files:
                 if not _is_recognized_folder_image(image_path):
                     continue

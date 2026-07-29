@@ -7,10 +7,10 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from faceledger.comparison import Diagnostic
 from faceledger.paths import application_data_root
@@ -35,6 +35,8 @@ class TrashOutcome:
 
 
 def _create_action_directory(trash_root: Path, action_id: str) -> Path:
+    """Create a collision-safe recovery directory for one trash action."""
+
     trash_root.mkdir(parents=True, exist_ok=True)
     suffix = 0
     while True:
@@ -49,6 +51,8 @@ def _create_action_directory(trash_root: Path, action_id: str) -> Path:
 
 
 def _write_manifest(path: Path, entries: list[dict[str, object]]) -> None:
+    """Atomically persist the complete current trash manifest."""
+
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=".manifest.",
         suffix=".tmp",
@@ -68,6 +72,8 @@ def _write_manifest(path: Path, entries: list[dict[str, object]]) -> None:
 
 
 def _files_match(source: Path, copied: Path) -> bool:
+    """Verify a copied cache entry matches its source byte for byte."""
+
     with source.open("rb") as source_file, copied.open("rb") as copied_file:
         while True:
             source_chunk = source_file.read(1024 * 1024)
@@ -79,6 +85,8 @@ def _files_match(source: Path, copied: Path) -> bool:
 
 
 def _copy_across_filesystems(source: Path, destination: Path) -> None:
+    """Copy and verify a cache before removing its cross-filesystem source."""
+
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.",
         suffix=".tmp",
@@ -87,10 +95,13 @@ def _copy_across_filesystems(source: Path, destination: Path) -> None:
     temporary_path = Path(temporary_name)
     destination_installed = False
     try:
-        with source.open("rb") as source_file, os.fdopen(
-            descriptor,
-            "wb",
-        ) as copied_file:
+        with (
+            source.open("rb") as source_file,
+            os.fdopen(
+                descriptor,
+                "wb",
+            ) as copied_file,
+        ):
             shutil.copyfileobj(source_file, copied_file)
             copied_file.flush()
             os.fsync(copied_file.fileno())
@@ -113,6 +124,8 @@ def _discover_cache_entries(
     recursive: bool,
     diagnostics: list[Diagnostic],
 ) -> tuple[Path, ...]:
+    """Discover exact-model caches without following filesystem symlinks."""
+
     selected: list[Path] = []
     pending = [root]
     while pending:
@@ -190,8 +203,8 @@ def trash_vector_cache(
         root_error = NotADirectoryError(f"Maintenance root is not a directory: {root}")
     else:
         try:
-            with os.scandir(root) as entries:
-                next(entries, None)
+            with os.scandir(root) as directory_entries:
+                next(directory_entries, None)
         except OSError as error:
             root_error = error
     if root_error is not None:

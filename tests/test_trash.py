@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 from unittest.mock import patch
 
 from faceledger.trash import TrashRequest, trash_vector_cache
@@ -73,12 +74,7 @@ class VectorCacheTrashTests(unittest.TestCase):
                     now=lambda: fixed_time,
                 )
 
-            action = (
-                xdg_data_home
-                / "faceledger"
-                / "trash"
-                / "20260728T123456.123456Z"
-            )
+            action = xdg_data_home / "faceledger" / "trash" / "20260728T123456.123456Z"
             first_destination = action / "files" / first_cache.name
             second_destination = action / "files" / second_cache.name
             manifest = action / "manifest.txt"
@@ -166,9 +162,7 @@ class VectorCacheTrashTests(unittest.TestCase):
             self.assertFalse(root_cache.exists())
             self.assertFalse(branch_cache.exists())
             self.assertEqual(other_model.read_bytes(), b"other model")
-            manifest = json.loads(
-                (action / "manifest.txt").read_text(encoding="utf-8")
-            )
+            manifest = json.loads((action / "manifest.txt").read_text(encoding="utf-8"))
             self.assertEqual(
                 [entry["trash_relative"] for entry in manifest],
                 [
@@ -222,9 +216,10 @@ class VectorCacheTrashTests(unittest.TestCase):
                 ["trash-entry-move-failed"],
             )
             self.assertEqual(outcome.diagnostics[0].path, failed_cache)
-            manifest = json.loads(
-                outcome.manifest_path.read_text(encoding="utf-8")
-            )
+            manifest_path = outcome.manifest_path
+            self.assertIsNotNone(manifest_path)
+            assert manifest_path is not None
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest[0]["status"], "failed")
             self.assertIn("move denied", manifest[0]["reason"])
             self.assertEqual(manifest[1]["status"], "moved")
@@ -266,9 +261,10 @@ class VectorCacheTrashTests(unittest.TestCase):
             self.assertFalse(cache.exists())
             self.assertEqual(destination.read_bytes(), b"cache bytes")
             self.assertEqual(outcome.diagnostics, ())
-            manifest = json.loads(
-                outcome.manifest_path.read_text(encoding="utf-8")
-            )
+            manifest_path = outcome.manifest_path
+            self.assertIsNotNone(manifest_path)
+            assert manifest_path is not None
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest[0]["status"], "moved")
             self.assertIsNone(manifest[0]["reason"])
 
@@ -288,12 +284,7 @@ class VectorCacheTrashTests(unittest.TestCase):
             moved_cache.write_bytes(b"Bob vector")
             xdg_data_home = temporary_path / "xdg-data"
             fixed_time = datetime(2026, 7, 28, 15, 30, 0, tzinfo=UTC)
-            action = (
-                xdg_data_home
-                / "faceledger"
-                / "trash"
-                / "20260728T153000.000000Z"
-            )
+            action = xdg_data_home / "faceledger" / "trash" / "20260728T153000.000000Z"
             blocked_parent = action / "files" / "A"
             real_mkdir = Path.mkdir
 
@@ -326,9 +317,10 @@ class VectorCacheTrashTests(unittest.TestCase):
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["trash-entry-move-failed"],
             )
-            manifest = json.loads(
-                outcome.manifest_path.read_text(encoding="utf-8")
-            )
+            manifest_path = outcome.manifest_path
+            self.assertIsNotNone(manifest_path)
+            assert manifest_path is not None
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest[0]["status"], "failed")
             self.assertIn("directory denied", manifest[0]["reason"])
             self.assertEqual(manifest[1]["status"], "moved")
@@ -354,8 +346,8 @@ class VectorCacheTrashTests(unittest.TestCase):
                 return real_rename(source, destination)
 
             def fail_alice_copy(
-                source_file: object,
-                destination_file: object,
+                source_file: BinaryIO,
+                destination_file: BinaryIO,
                 length: int = 0,
             ) -> None:
                 if Path(source_file.name) == failed_cache:
@@ -390,9 +382,10 @@ class VectorCacheTrashTests(unittest.TestCase):
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["trash-entry-move-failed"],
             )
-            manifest = json.loads(
-                outcome.manifest_path.read_text(encoding="utf-8")
-            )
+            manifest_path = outcome.manifest_path
+            self.assertIsNotNone(manifest_path)
+            assert manifest_path is not None
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest[0]["status"], "failed")
             self.assertIn("copy failed", manifest[0]["reason"])
             self.assertEqual(manifest[1]["status"], "moved")
@@ -418,8 +411,8 @@ class VectorCacheTrashTests(unittest.TestCase):
                 return real_rename(source, destination)
 
             def corrupt_alice_copy(
-                source_file: object,
-                destination_file: object,
+                source_file: BinaryIO,
+                destination_file: BinaryIO,
                 length: int = 0,
             ) -> None:
                 if Path(source_file.name) == failed_cache:
@@ -450,9 +443,10 @@ class VectorCacheTrashTests(unittest.TestCase):
             self.assertFalse(failed_destination.exists())
             self.assertFalse(moved_cache.exists())
             self.assertEqual(moved_destination.read_bytes(), b"Bob vector")
-            manifest = json.loads(
-                outcome.manifest_path.read_text(encoding="utf-8")
-            )
+            manifest_path = outcome.manifest_path
+            self.assertIsNotNone(manifest_path)
+            assert manifest_path is not None
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest[0]["status"], "failed")
             self.assertIn("verification failed", manifest[0]["reason"])
             self.assertEqual(manifest[1]["status"], "moved")
@@ -468,12 +462,7 @@ class VectorCacheTrashTests(unittest.TestCase):
             interrupted_cache.write_bytes(b"Bob vector")
             xdg_data_home = temporary_path / "xdg-data"
             fixed_time = datetime(2026, 7, 28, 17, 0, 0, tzinfo=UTC)
-            action = (
-                xdg_data_home
-                / "faceledger"
-                / "trash"
-                / "20260728T170000.000000Z"
-            )
+            action = xdg_data_home / "faceledger" / "trash" / "20260728T170000.000000Z"
             real_rename = Path.rename
 
             def interrupt_bob(source: Path, destination: Path) -> Path:
@@ -491,9 +480,7 @@ class VectorCacheTrashTests(unittest.TestCase):
                     now=lambda: fixed_time,
                 )
 
-            manifest = json.loads(
-                (action / "manifest.txt").read_text(encoding="utf-8")
-            )
+            manifest = json.loads((action / "manifest.txt").read_text(encoding="utf-8"))
             self.assertEqual(manifest[0]["status"], "moved")
             self.assertEqual(manifest[1]["status"], "planned")
             self.assertIsNone(manifest[1]["reason"])

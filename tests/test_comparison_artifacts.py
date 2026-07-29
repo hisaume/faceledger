@@ -60,7 +60,9 @@ class ComparisonArtifactTests(unittest.TestCase):
                 "1     People/Alice  0.125000\n",
             )
 
-    def test_requested_log_contains_metadata_diagnostics_and_counts_not_results(self) -> None:
+    def test_requested_log_contains_metadata_diagnostics_and_counts_not_results(
+        self,
+    ) -> None:
         outcome = ComparisonOutcome(
             matches=self.outcome.matches,
             diagnostics=(

@@ -8,11 +8,14 @@ from unittest.mock import patch
 
 from faceledger.comparison import ComparisonRequest, compare
 
-
 MODEL_ASSETS = {
     "Facenet512": "facenet512_weights.h5",
     "ArcFace": "arcface_weights.h5",
 }
+
+
+class DeepFaceModule(types.ModuleType):
+    DeepFace: object
 
 
 def _weights_path(home: Path) -> Path:
@@ -26,8 +29,8 @@ def _install_assets(home: Path, model_name: str) -> None:
     (weights_path / "retinaface.h5").write_bytes(b"detector weights")
 
 
-def _deepface_module(represent: object) -> types.ModuleType:
-    module = types.ModuleType("deepface")
+def _deepface_module(represent: object) -> DeepFaceModule:
+    module = DeepFaceModule("deepface")
     module.DeepFace = types.SimpleNamespace(represent=represent)
     return module
 
@@ -51,8 +54,11 @@ class DeepFaceAdapterTests(unittest.TestCase):
                     deepface_home = root / "deepface-home"
                     _install_assets(deepface_home, model_name)
 
-                    def represent(**arguments: object) -> list[dict[str, object]]:
-                        self.assertEqual(arguments["model_name"], model_name)
+                    def represent(
+                        _expected_model_name: str = model_name,
+                        **arguments: object,
+                    ) -> list[dict[str, object]]:
+                        self.assertEqual(arguments["model_name"], _expected_model_name)
                         self.assertEqual(arguments["detector_backend"], "retinaface")
                         self.assertIs(arguments["enforce_detection"], True)
                         self.assertIs(arguments["align"], True)
@@ -84,7 +90,7 @@ class DeepFaceAdapterTests(unittest.TestCase):
                 self.assertEqual(outcome.matches[0].cosine_distance, 0.0)
 
     def test_rejects_face_counts_and_dimensions_outside_the_profile(self) -> None:
-        cases = (
+        cases: tuple[tuple[list[dict[str, object]], str], ...] = (
             ([], "exactly one face"),
             (
                 [
@@ -115,7 +121,9 @@ class DeepFaceAdapterTests(unittest.TestCase):
                             sys.modules,
                             {
                                 "deepface": _deepface_module(
-                                    lambda **_arguments: representations
+                                    lambda _representations=representations, **_arguments: (
+                                        _representations
+                                    )
                                 )
                             },
                         ),
@@ -135,7 +143,9 @@ class DeepFaceAdapterTests(unittest.TestCase):
                 )
                 self.assertIn(expected_message, outcome.diagnostics[0].message)
 
-    def test_announces_missing_dependency_assets_before_deepface_acquires_them(self) -> None:
+    def test_announces_missing_dependency_assets_before_deepface_acquires_them(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             source, target_root = _comparison_paths(root)
@@ -169,15 +179,19 @@ class DeepFaceAdapterTests(unittest.TestCase):
             if diagnostic.code == "model-asset-acquisition"
         ]
         self.assertTrue(outcome.successful)
+        acquisition_paths = [diagnostic.path for diagnostic in acquisition_notices]
+        self.assertNotIn(None, acquisition_paths)
         self.assertEqual(
-            {diagnostic.path.name for diagnostic in acquisition_notices},
+            {path.name for path in acquisition_paths if path is not None},
             {"facenet512_weights.h5", "retinaface.h5"},
         )
         self.assertTrue(
             all(diagnostic.severity == "info" for diagnostic in acquisition_notices)
         )
 
-    def test_acquisition_failure_is_actionable_and_installed_assets_work_offline(self) -> None:
+    def test_acquisition_failure_is_actionable_and_installed_assets_work_offline(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             source, target_root = _comparison_paths(root)

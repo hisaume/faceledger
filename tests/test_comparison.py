@@ -12,13 +12,14 @@ from faceledger.comparison import (
     compare,
 )
 from faceledger.presentation import render_matches
+from faceledger.vector_profiles import VectorProfile
 
 
 class DeterministicRecognition:
     def __init__(self, vectors: dict[Path, tuple[float, ...]]) -> None:
         self._vectors = vectors
 
-    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
+    def vector_for(self, image_path: Path, profile: VectorProfile) -> tuple[float, ...]:
         return self._vectors[image_path]
 
 
@@ -49,7 +50,7 @@ class ProfileSensitiveRecognition:
     ) -> None:
         self._vectors = vectors
 
-    def vector_for(self, image_path: Path, profile: object) -> tuple[float, ...]:
+    def vector_for(self, image_path: Path, profile: VectorProfile) -> tuple[float, ...]:
         profile_key = (
             profile.model_name,
             profile.cache_slug,
@@ -425,8 +426,7 @@ class StandaloneComparisonTests(unittest.TestCase):
 
             self.assertEqual(
                 render_matches(outcome),
-                "Rank  Identity  Cosine distance\n"
-                "1     .         0.000000\n",
+                "Rank  Identity  Cosine distance\n1     .         0.000000\n",
             )
 
 

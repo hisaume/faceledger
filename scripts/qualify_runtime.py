@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Qualify Faceledger's locked DeepFace runtime."""
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import os
 import platform
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
@@ -20,9 +19,23 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from faceledger.vector_profiles import DEFAULT_MODEL_NAME, VECTOR_PROFILES
 
 
+class RuntimeQualificationContract(TypedDict):
+    deepface_version: str
+    python_version: str
+    tensorflow_version: str
+    tf_keras_version: str
+    detector_backend: str
+    align: bool
+    recognition_models: list[str]
+    static_image_formats: list[str]
+    embedding_dimensions: dict[str, int]
+    cache_slugs: dict[str, str]
+    cosine_thresholds: dict[str, float]
+
+
 _DEFAULT_PROFILE = VECTOR_PROFILES[DEFAULT_MODEL_NAME]
 
-VECTOR_PROFILE = {
+VECTOR_PROFILE: RuntimeQualificationContract = {
     "deepface_version": "0.0.100",
     "python_version": "3.12",
     "tensorflow_version": "2.21.0",
@@ -32,8 +45,7 @@ VECTOR_PROFILE = {
     "recognition_models": list(VECTOR_PROFILES),
     "static_image_formats": ["JPEG", "PNG", "WEBP"],
     "embedding_dimensions": {
-        name: profile.expected_dimensions
-        for name, profile in VECTOR_PROFILES.items()
+        name: profile.expected_dimensions for name, profile in VECTOR_PROFILES.items()
     },
     "cache_slugs": {
         name: profile.cache_slug for name, profile in VECTOR_PROFILES.items()
@@ -44,7 +56,9 @@ VECTOR_PROFILE = {
 }
 
 
-def _parse_images(values: list[str], parser: argparse.ArgumentParser) -> dict[str, Path]:
+def _parse_images(
+    values: list[str], parser: argparse.ArgumentParser
+) -> dict[str, Path]:
     images: dict[str, Path] = {}
     for value in values:
         image_format, separator, path = value.partition("=")
@@ -103,8 +117,8 @@ def _installed_runtime() -> tuple[dict[str, str], dict[str, list[str]]]:
 
 
 def _qualify(images: dict[str, Path], report_path: Path) -> int:
+    from deepface import DeepFace  # type: ignore[import-untyped]
     from PIL import Image
-    from deepface import DeepFace
 
     for expected_format, image_path in images.items():
         with Image.open(image_path) as image:
@@ -113,7 +127,8 @@ def _qualify(images: dict[str, Path], report_path: Path) -> int:
                     f"{image_path} is {image.format}, expected {expected_format}"
                 )
             if expected_format == "WEBP" and (
-                image.is_animated or image.n_frames != 1
+                bool(getattr(image, "is_animated", False))
+                or getattr(image, "n_frames", 1) != 1
             ):
                 raise ValueError(f"{image_path} must be a one-frame static WebP")
 
@@ -145,7 +160,7 @@ def _qualify(images: dict[str, Path], report_path: Path) -> int:
                     raise ValueError("embedding contains a non-finite value")
                 check.update(status="passed", embedding_dimensions=len(embedding))
                 passed += 1
-            except Exception as error:  # qualification must report every attempted case
+            except Exception as error:  # noqa: BLE001 - qualification must report every attempted case
                 check.update(status="failed", error=f"{type(error).__name__}: {error}")
                 failed += 1
             checks.append(check)
@@ -194,7 +209,9 @@ def main() -> int:
         metavar="FORMAT=PATH",
         help="qualification image for JPEG, PNG, or WEBP (repeat three times)",
     )
-    parser.add_argument("--report", type=Path, help="write the JSON qualification report")
+    parser.add_argument(
+        "--report", type=Path, help="write the JSON qualification report"
+    )
     arguments = parser.parse_args()
 
     if arguments.describe:
