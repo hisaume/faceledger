@@ -17,6 +17,10 @@ from faceledger.maintenance import (
 )
 
 
+class DeepFaceModule(types.ModuleType):
+    DeepFace: object
+
+
 def unit_vector(index: int = 0) -> tuple[float, ...]:
     return tuple(1.0 if position == index else 0.0 for position in range(512))
 
@@ -62,7 +66,7 @@ class CacheBuildTests(unittest.TestCase):
             weights.mkdir(parents=True)
             (weights / "facenet512_weights.h5").write_bytes(b"model")
             (weights / "retinaface.h5").write_bytes(b"detector")
-            deepface_module = types.ModuleType("deepface")
+            deepface_module = DeepFaceModule("deepface")
             deepface_module.DeepFace = types.SimpleNamespace(
                 represent=lambda **_arguments: [{"embedding": unit_vector()}]
             )
@@ -238,8 +242,7 @@ class CacheBuildTests(unittest.TestCase):
             for face in faces:
                 face.write_bytes(b"face")
             caches = tuple(
-                root / f"Person.face{number}.jpg.facenet512.npy"
-                for number in range(3)
+                root / f"Person.face{number}.jpg.facenet512.npy" for number in range(3)
             )
             caches[0].write_bytes(b"not an NPY file")
             np.save(caches[1], np.asarray(["not numeric"] * 512))
@@ -263,7 +266,10 @@ class CacheBuildTests(unittest.TestCase):
                 set(caches),
             )
             self.assertTrue(
-                all(diagnostic.severity == "warning" for diagnostic in outcome.diagnostics)
+                all(
+                    diagnostic.severity == "warning"
+                    for diagnostic in outcome.diagnostics
+                )
             )
             for number, cache in enumerate(caches):
                 np.testing.assert_array_equal(np.load(cache), unit_vector(number))
@@ -292,10 +298,7 @@ class CacheBuildTests(unittest.TestCase):
 
             folder_cache = root / "folder.jpg.facenet512.npy"
             expected = np.asarray(
-                tuple(
-                    2**-0.5 if position in {0, 1} else 0.0
-                    for position in range(512)
-                )
+                tuple(2**-0.5 if position in {0, 1} else 0.0 for position in range(512))
             )
             self.assertTrue(outcome.successful)
             self.assertEqual(outcome.created, (folder_cache,))
@@ -343,7 +346,10 @@ class CacheBuildTests(unittest.TestCase):
             self.assertEqual(outcome.diagnostics[0].path, unusable_face)
             self.assertEqual(outcome.diagnostics[1].path, blocked_cache)
             self.assertTrue(
-                all(diagnostic.severity == "warning" for diagnostic in outcome.diagnostics)
+                all(
+                    diagnostic.severity == "warning"
+                    for diagnostic in outcome.diagnostics
+                )
             )
 
 
@@ -362,7 +368,7 @@ class CacheRebuildTests(unittest.TestCase):
             weights.mkdir(parents=True)
             (weights / "facenet512_weights.h5").write_bytes(b"model")
             (weights / "retinaface.h5").write_bytes(b"detector")
-            deepface_module = types.ModuleType("deepface")
+            deepface_module = DeepFaceModule("deepface")
             deepface_module.DeepFace = types.SimpleNamespace(
                 represent=lambda **_arguments: [{"embedding": unit_vector(2)}]
             )
@@ -536,7 +542,9 @@ class CacheRebuildTests(unittest.TestCase):
             self.assertEqual(outcome.diagnostics[0].path, failed_cache)
             self.assertEqual(outcome.diagnostics[0].severity, "warning")
 
-    def test_rebuilds_one_folder_identity_from_its_remaining_usable_images(self) -> None:
+    def test_rebuilds_one_folder_identity_from_its_remaining_usable_images(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "Single Person"
             root.mkdir()
@@ -563,10 +571,7 @@ class CacheRebuildTests(unittest.TestCase):
             )
 
             expected = np.asarray(
-                tuple(
-                    2**-0.5 if position in {0, 1} else 0.0
-                    for position in range(512)
-                )
+                tuple(2**-0.5 if position in {0, 1} else 0.0 for position in range(512))
             )
             self.assertTrue(outcome.successful)
             self.assertEqual(outcome.rebuilt, (folder_cache,))
@@ -667,9 +672,7 @@ class CacheRebuildTests(unittest.TestCase):
             self.assertEqual(outcome.rebuilt, (static_cache,))
             np.testing.assert_array_equal(np.load(static_cache), unit_vector(1))
             self.assertFalse((root / "Motion.face1.webp.arcface.npy").exists())
-            self.assertFalse(
-                (descendant / "Nested.face2.jpg.arcface.npy").exists()
-            )
+            self.assertFalse((descendant / "Nested.face2.jpg.arcface.npy").exists())
             self.assertEqual(
                 other_model_cache.read_bytes(),
                 b"Facenet512 remains isolated",

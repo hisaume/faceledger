@@ -11,7 +11,6 @@ from typing import Any
 from faceledger.comparison import AssetAcquisitionFailure, RecognitionFailure
 from faceledger.vector_profiles import VectorProfile
 
-
 _MODEL_ASSET_NAMES = {
     "Facenet512": "facenet512_weights.h5",
     "ArcFace": "arcface_weights.h5",
@@ -31,6 +30,8 @@ class DeepFaceRecognition:
         image_path: Path,
         profile: VectorProfile,
     ) -> Sequence[float]:
+        """Calculate and validate an embedding with the locked CPU profile."""
+
         required_assets = self._required_assets(profile)
         missing_assets = tuple(path for path in required_assets if not path.is_file())
         for asset_path in missing_assets:
@@ -42,7 +43,7 @@ class DeepFaceRecognition:
         # so this version-one runtime remains CPU-only.
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         try:
-            from deepface import DeepFace
+            from deepface import DeepFace  # type: ignore[import-untyped]
 
             representations: Any = DeepFace.represent(
                 img_path=str(image_path),
@@ -103,6 +104,8 @@ class DeepFaceRecognition:
 
     @staticmethod
     def _required_assets(profile: VectorProfile) -> tuple[Path, Path]:
+        """Resolve the model and detector assets required by the profile."""
+
         deepface_home = Path(os.environ.get("DEEPFACE_HOME", Path.home()))
         weights_path = deepface_home / ".deepface" / "weights"
         return (
@@ -115,6 +118,8 @@ class DeepFaceRecognition:
         error: Exception,
         required_assets: tuple[Path, Path],
     ) -> bool:
+        """Distinguish asset acquisition failures from recognition failures."""
+
         if any(not path.is_file() for path in required_assets):
             return True
         messages: list[str] = []

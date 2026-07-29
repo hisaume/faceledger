@@ -83,7 +83,9 @@ class ComparisonPresentationTests(unittest.TestCase):
         self.assertNotIn("WARNING", result_text)
         self.assertNotIn("target-face-unusable", result_text)
 
-        self.assertEqual(diagnostic_text.count("WARNING [target:target-face-unusable]"), 2)
+        self.assertEqual(
+            diagnostic_text.count("WARNING [target:target-face-unusable]"), 2
+        )
         self.assertIn(str(first_bad_face), diagnostic_text)
         self.assertIn("Expected one face but found two", diagnostic_text)
         self.assertIn(str(second_bad_face), diagnostic_text)

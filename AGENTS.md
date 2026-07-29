@@ -155,9 +155,38 @@ This repository uses a single-context domain-documentation layout. See `docs/age
 
 Plan with `grill-with-docs`, `to-spec`, and `to-tickets`; implement each claimed vertical slice with `tdd`; and keep the slice open until its pull request is merged. See `docs/agents/development-workflow.md`.
 
-## Implementation
+---
+## Implementation Phase
 
 Implementation happens per-ticket in Beads, called a cycle.
+
+### Python Validation
+
+Run `./scripts/check.sh` after modifying Python code and before declaring the task complete. Run it again immediately before committing or pushing when requested.
+
+Treat this script as the authoritative project-wide validation command for Ruff linting, Ruff formatting, mypy, and unit tests. Fix underlying failures; do not bypass the script, weaken its configuration, or add broad suppressions merely to make it pass.
+
+Targeted Ruff, mypy, or test commands may be used during development for faster feedback, but they do not replace the final full check.
+
+Ruff’s safe automatic fixes may be used during development with `uv run ruff check --fix <targets>`. Do not use `--unsafe-fixes`. Review all resulting changes, then run `./scripts/check.sh` for final non-mutating validation.
+
+- #### Validation Script Maintenance
+
+  Keep `./scripts/check.sh` aligned with the project’s maintained Python code and required validation steps. When adding, moving, or removing Python packages, tests, scripts, or quality tools, update the script as necessary so it remains the single authoritative command used locally, by Codex, and by CI.
+
+  Do not exclude relevant code or remove checks merely to make validation pass. When changing the script’s scope or behaviour, update CI to invoke the same script rather than duplicating its commands.
+
+### Docstrings
+
+When creating or modifying a non-trivial production function, add a docstring immediately below its declaration.
+
+* Describe what the function achieves in one concise sentence.
+* Explain architectural intent only when it is not apparent from the implementation.
+* Do not restate the function name, implementation steps, parameter types, or return type.
+* Document parameters, return values, side effects, or edge cases only when they are non-obvious or significant.
+* Do not add docstrings to test functions, fixtures, callbacks, trivial accessors, or other functions whose purpose is already clear from their name and context.
+* Use the language’s conventional docstring format.
+* Keep the complete docstring to four lines or fewer.
 
 ### Cycle start
 
@@ -172,6 +201,10 @@ Implementation happens per-ticket in Beads, called a cycle.
 - Report errors and standby, if necessary. Otherwise move on.
 - Report status by stating the next tickets which are open or blocked. Distinguish the tickets which previously became open and has remained open, from the ones which has become unlocked more recently.
 - Standby.
+
+### DeepFace Boundary & Known Issues
+
+DeepFace is an untyped external dependency. Keep all direct `deepface` imports and DeepFace-specific logic isolated behind the adapter boundary, preserve the targeted `# type: ignore[import-untyped]`, and return normalized typed application data. If maintaining this boundary in one module would mix distinct responsibilities or create excessive complexity, propose the additional adapter module and explain the intended separation before implementing it.
 
 ### Live Scoping Doc during Implementation
 

@@ -20,3 +20,14 @@ required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 exclude-newer = "2026-07-24T00:00:00Z"
+
+[tool.mypy]
+strict = true
+show_error_codes = true
+pretty = true
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "ruff>=0.16.0",
+]
