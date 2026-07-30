@@ -50,7 +50,9 @@ Application code calls these public operations and their request objects:
 
 The returned outcomes keep candidate results, diagnostics, progress, success,
 and completeness separate so a caller can present them without relying on
-internal implementation details.
+internal implementation details. See the concise
+[core API reference](docs/reference/core-api.md) for function signatures and
+their request and outcome structures.
 
 ## Data, cache, and concurrency boundaries
 
