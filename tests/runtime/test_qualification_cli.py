@@ -23,11 +23,12 @@ class RuntimeQualificationContractTests(unittest.TestCase):
         contract = json.loads(completed.stdout)
 
         self.assertEqual(contract["deepface_version"], "0.0.100")
-        self.assertEqual(contract["python_version"], "3.12")
+        self.assertEqual(contract["python_version"], "3.12.13")
         self.assertEqual(contract["tensorflow_version"], "2.21.0")
         self.assertEqual(contract["tf_keras_version"], "2.21.0")
         self.assertEqual(contract["detector_backend"], "retinaface")
         self.assertIs(contract["align"], True)
+        self.assertIs(contract["cpu_only"], True)
         self.assertEqual(
             contract["recognition_models"],
             ["Facenet512", "ArcFace"],
@@ -54,6 +55,7 @@ class RuntimeQualificationContractTests(unittest.TestCase):
             package_path.mkdir(parents=True)
             (package_path / "__init__.py").write_text(
                 """
+import os
 from pathlib import Path
 
 
@@ -75,6 +77,14 @@ class DeepFace:
         suffix = Path(img_path).suffix.lower()
         if suffix not in {".jpg", ".png", ".webp"}:
             raise AssertionError("unexpected image format")
+        weights_path = Path(os.environ["DEEPFACE_HOME"]) / ".deepface" / "weights"
+        weights_path.mkdir(parents=True, exist_ok=True)
+        (weights_path / "retinaface.h5").write_bytes(b"stub detector")
+        model_asset = {
+            "Facenet512": "facenet512_weights.h5",
+            "ArcFace": "arcface_weights.h5",
+        }[model_name]
+        (weights_path / model_asset).write_bytes(f"stub {model_name}".encode())
         return [{"embedding": [0.5] * DIMENSIONS[model_name]}]
 """.lstrip(),
                 encoding="utf-8",
@@ -152,11 +162,14 @@ def open(path):
             environment = os.environ.copy()
             environment["PYTHONPATH"] = str(adapter_path)
             environment["DEEPFACE_HOME"] = str(temporary_path / "asset-home")
+            environment["XDG_DATA_HOME"] = str(temporary_path / "xdg-data")
             completed = subprocess.run(
                 [
                     sys.executable,
                     str(QUALIFICATION_COMMAND),
                     "--qualify",
+                    "--phase",
+                    "first-use",
                     *(
                         argument
                         for image_format, image_path in images.items()
@@ -173,22 +186,69 @@ def open(path):
             )
 
             report = json.loads(report_path.read_text(encoding="utf-8"))
+            offline_report_path = temporary_path / "offline-report.json"
+            offline_completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(QUALIFICATION_COMMAND),
+                    "--qualify",
+                    "--phase",
+                    "offline",
+                    *(
+                        argument
+                        for image_format, image_path in images.items()
+                        for argument in ("--image", f"{image_format}={image_path}")
+                    ),
+                    "--report",
+                    str(offline_report_path),
+                ],
+                cwd=REPOSITORY_ROOT,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            offline_report = json.loads(offline_report_path.read_text(encoding="utf-8"))
 
         self.assertEqual(completed.stdout, "")
+        self.assertEqual(offline_completed.stdout, "")
+        self.assertEqual(report["phase"], "first-use")
+        self.assertEqual(offline_report["phase"], "offline")
+        self.assertEqual(report["assets_before"], [])
         self.assertEqual(report["deepface_version"], "0.0.100")
-        self.assertEqual(report["assets"], [])
+        self.assertEqual(
+            {asset["path"] for asset in report["assets"]},
+            {
+                "arcface_weights.h5",
+                "facenet512_weights.h5",
+                "retinaface.h5",
+            },
+        )
+        self.assertEqual(offline_report["assets_before"], report["assets"])
+        self.assertEqual(offline_report["assets"], report["assets"])
         self.assertEqual(report["runtime"]["machine"], "x86_64")
         self.assertIn("python", report["runtime"])
         self.assertIn("libc", report["runtime"])
         self.assertEqual(report["runtime"]["tensorflow"], "2.21.0")
         self.assertEqual(report["runtime"]["tf_keras"], "2.21.0")
+        self.assertEqual(report["runtime_contract_errors"], [])
         self.assertEqual(report["runtime"]["wheel_tags"]["deepface"], ["py3-none-any"])
         self.assertEqual(
             report["runtime"]["wheel_tags"]["tensorflow"],
             ["cp312-cp312-manylinux_2_27_x86_64"],
         )
         self.assertEqual(len(report["lock_sha256"]), 64)
-        self.assertEqual(report["summary"], {"passed": 6, "failed": 0})
+        self.assertEqual(
+            report["summary"],
+            {
+                "passed": 6,
+                "failed": 0,
+                "public_operations_passed": 6,
+                "public_operations_failed": 0,
+                "asset_lifecycle_failed": 0,
+                "runtime_contract_failed": 0,
+            },
+        )
         self.assertEqual(len(report["checks"]), 6)
         self.assertEqual(
             {(check["model"], check["format"]) for check in report["checks"]},
@@ -204,6 +264,47 @@ def open(path):
                 check["embedding_dimensions"]
                 == report["embedding_dimensions"][check["model"]]
                 for check in report["checks"]
+            )
+        )
+        self.assertEqual(len(report["operation_checks"]), 6)
+        self.assertEqual(
+            {(check["model"], check["format"]) for check in report["operation_checks"]},
+            {
+                (model, image_format)
+                for model in ["Facenet512", "ArcFace"]
+                for image_format in ["JPEG", "PNG", "WEBP"]
+            },
+        )
+        self.assertTrue(
+            all(
+                check["status"] == "passed"
+                and check["operations"]
+                == [
+                    "compare-uncached",
+                    "cache-build",
+                    "compare-cached",
+                    "cache-rebuild",
+                    "trash",
+                ]
+                for check in report["operation_checks"]
+            )
+        )
+        self.assertEqual(
+            {
+                notice
+                for check in report["operation_checks"]
+                for notice in check["acquisition_notices"]
+            },
+            {
+                "arcface_weights.h5",
+                "facenet512_weights.h5",
+                "retinaface.h5",
+            },
+        )
+        self.assertTrue(
+            all(
+                not check["acquisition_notices"]
+                for check in offline_report["operation_checks"]
             )
         )
 

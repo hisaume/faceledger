@@ -204,10 +204,19 @@ When creating or modifying a non-trivial production function, add a docstring im
 
 ### DeepFace Boundary & Known Issues
 
-DeepFace is an untyped external dependency. Keep all direct `deepface` imports and DeepFace-specific logic isolated behind the adapter boundary, preserve the targeted `# type: ignore[import-untyped]`, and return normalized typed application data. If maintaining this boundary in one module would mix distinct responsibilities or create excessive complexity, propose the additional adapter module and explain the intended separation before implementing it.
+- `qualify_runtime.py` deliberately tests raw DeepFace behavior, while application code uses `DeepFaceRecognition`.
+
+- Generally, DeepFace is an untyped external dependency. Keep all direct `deepface` imports and DeepFace-specific logic isolated behind the adapter boundary, preserve the targeted `# type: ignore[import-untyped]`, and return normalized typed application data. If maintaining this boundary in one module would mix distinct responsibilities or create excessive complexity, propose the additional adapter module and explain the intended separation before implementing it.
 
 ### Live Scoping Doc during Implementation
+
+Treat the following scoping document as an overlay on every original spec, ADR, and ticket.
 
 For version 1:
 
       docs/specs/faceledger-v1-model-scope-amendment.md
+
+- Key points:
+
+  “All eleven models” now means Facenet512 and ArcFace only; retain the DeepFace 0.0.100 package and
+  the CPython 3.12/TensorFlow 2.21/tf-keras 2.21 runtime. Historical eleven-model research remains evidence, not current acceptance scope.
