@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from faceledger.comparison import Diagnostic
+from faceledger.comparison import Diagnostic, ProgressNotification
 from faceledger.paths import application_data_root
 from faceledger.vector_profiles import DEFAULT_MODEL_NAME, VECTOR_PROFILES
 
@@ -32,6 +32,8 @@ class TrashOutcome:
     diagnostics: tuple[Diagnostic, ...] = ()
     message: str = ""
     successful: bool = True
+    progress: tuple[ProgressNotification, ...] = ()
+    complete: bool = True
 
 
 def _create_action_directory(trash_root: Path, action_id: str) -> Path:
@@ -179,6 +181,8 @@ def trash_vector_cache(
     request: TrashRequest,
     *,
     now: Callable[[], datetime] | None = None,
+    on_progress: Callable[[ProgressNotification], None] | None = None,
+    cancellation_requested: Callable[[], bool] | None = None,
 ) -> TrashOutcome:
     """Move exactly selected-model cache entries into recoverable trash."""
 
@@ -226,6 +230,7 @@ def trash_vector_cache(
     profile = VECTOR_PROFILES[request.model_name]
     suffix = f".{profile.cache_slug}.npy"
     diagnostics: list[Diagnostic] = []
+    progress: list[ProgressNotification] = []
     selected = _discover_cache_entries(
         root,
         suffix,
@@ -265,9 +270,54 @@ def trash_vector_cache(
     _write_manifest(manifest_path, entries)
 
     moved: list[Path] = []
+
+    def is_cancelled() -> bool:
+        return cancellation_requested is not None and cancellation_requested()
+
+    def emit_progress(path: Path) -> None:
+        """Publish completion only after the manifest records an attempt."""
+
+        notification = ProgressNotification(
+            category="trash",
+            completed_items=len(progress) + 1,
+            path=path,
+            message=f"Completed trash entry: {path}",
+        )
+        progress.append(notification)
+        if on_progress is not None:
+            on_progress(notification)
+
+    def cancelled_outcome() -> TrashOutcome:
+        """Report incomplete trash work while preserving its durable manifest."""
+
+        return TrashOutcome(
+            action_directory=action_directory,
+            manifest_path=manifest_path,
+            moved=tuple(moved),
+            diagnostics=tuple(diagnostics)
+            + (
+                Diagnostic(
+                    severity="info",
+                    category="operation",
+                    code="trash-cancelled",
+                    path=None,
+                    message="Trash operation cancelled; the operation is incomplete.",
+                ),
+            ),
+            message=f"Moved {len(moved)} {profile.model_name} cache entries to trash",
+            successful=False,
+            progress=tuple(progress),
+            complete=False,
+        )
+
+    if is_cancelled():
+        return cancelled_outcome()
+
     for index, (source, destination) in enumerate(
         zip(selected, destinations, strict=True)
     ):
+        if is_cancelled():
+            return cancelled_outcome()
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)
             source.rename(destination)
@@ -281,6 +331,7 @@ def trash_vector_cache(
                     moved.append(destination)
                     entries[index]["status"] = "moved"
                     _write_manifest(manifest_path, entries)
+                    emit_progress(source)
                     continue
             entries[index]["status"] = "failed"
             entries[index]["reason"] = str(error)
@@ -294,10 +345,15 @@ def trash_vector_cache(
                 )
             )
             _write_manifest(manifest_path, entries)
+            emit_progress(source)
             continue
         moved.append(destination)
         entries[index]["status"] = "moved"
         _write_manifest(manifest_path, entries)
+        emit_progress(source)
+
+    if is_cancelled():
+        return cancelled_outcome()
 
     return TrashOutcome(
         action_directory=action_directory,
@@ -305,4 +361,5 @@ def trash_vector_cache(
         moved=tuple(moved),
         diagnostics=tuple(diagnostics),
         message=f"Moved {len(moved)} {profile.model_name} cache entries to trash",
+        progress=tuple(progress),
     )

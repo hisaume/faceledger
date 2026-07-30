@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from faceledger.comparison import (
     Diagnostic,
     Embedding,
     InvalidCacheEntry,
+    ProgressNotification,
     RecognitionAdapter,
     RecognitionFailure,
     _cache_path,
@@ -45,6 +46,8 @@ class CacheBuildOutcome:
     retained: tuple[Path, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
     successful: bool = True
+    progress: tuple[ProgressNotification, ...] = ()
+    complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,8 @@ class CacheRebuildOutcome:
     rebuilt: tuple[Path, ...]
     diagnostics: tuple[Diagnostic, ...] = ()
     successful: bool = True
+    progress: tuple[ProgressNotification, ...] = ()
+    complete: bool = True
 
 
 def _validated_vector(
@@ -156,6 +161,9 @@ def _maintenance_folder_views(
 def build_vector_cache(
     request: CacheBuildRequest,
     recognition: RecognitionAdapter | None = None,
+    *,
+    on_progress: Callable[[ProgressNotification], None] | None = None,
+    cancellation_requested: Callable[[], bool] | None = None,
 ) -> CacheBuildOutcome:
     """Create missing selected-model cache entries in one maintenance root."""
 
@@ -202,6 +210,7 @@ def build_vector_cache(
     diagnostics: list[Diagnostic] = []
     created: list[Path] = []
     retained: list[Path] = []
+    progress: list[ProgressNotification] = []
     if recognition is None:
         from faceledger.deepface_adapter import DeepFaceRecognition
 
@@ -237,13 +246,59 @@ def build_vector_cache(
             retained=tuple(retained),
             diagnostics=tuple(diagnostics),
             successful=False,
+            progress=tuple(progress),
         )
+
+    def calculate_vector(path: Path) -> Embedding:
+        """Validate one recognition result and emit its completion progress."""
+
+        try:
+            return _validated_vector(recognition.vector_for(path, profile), profile)
+        finally:
+            notification = ProgressNotification(
+                category="cache-build",
+                completed_items=len(progress) + 1,
+                path=path,
+                message=f"Completed cache-build image: {path}",
+            )
+            progress.append(notification)
+            if on_progress is not None:
+                on_progress(notification)
+
+    def is_cancelled() -> bool:
+        return cancellation_requested is not None and cancellation_requested()
+
+    def cancelled_outcome() -> CacheBuildOutcome:
+        """Report incomplete build work without discarding persisted entries."""
+
+        return CacheBuildOutcome(
+            created=tuple(created),
+            retained=tuple(retained),
+            diagnostics=tuple(diagnostics)
+            + (
+                Diagnostic(
+                    severity="info",
+                    category="operation",
+                    code="cache-build-cancelled",
+                    path=None,
+                    message="Cache build cancelled; the operation is incomplete.",
+                ),
+            ),
+            successful=False,
+            progress=tuple(progress),
+            complete=False,
+        )
+
+    if is_cancelled():
+        return cancelled_outcome()
 
     for _folder, files in _maintenance_folder_views(
         root,
         recursive=request.recursive,
         diagnostics=diagnostics,
     ):
+        if is_cancelled():
+            return cancelled_outcome()
         anchor = next((path for path in files if path.name == "folder.jpg"), None)
         if anchor is not None:
             cache_path = _cache_path(anchor, profile)
@@ -268,6 +323,8 @@ def build_vector_cache(
 
             image_vectors: list[Embedding] = []
             for image_path in files:
+                if is_cancelled():
+                    return cancelled_outcome()
                 if not _is_recognized_folder_image(image_path):
                     continue
                 if _is_animated_webp(image_path):
@@ -282,12 +339,7 @@ def build_vector_cache(
                     )
                     continue
                 try:
-                    image_vectors.append(
-                        _validated_vector(
-                            recognition.vector_for(image_path, profile),
-                            profile,
-                        )
-                    )
+                    image_vectors.append(calculate_vector(image_path))
                 except AssetAcquisitionFailure as error:
                     return asset_failure_outcome(error)
                 except (RecognitionFailure, OSError) as error:
@@ -328,6 +380,8 @@ def build_vector_cache(
             continue
 
         for image_path in files:
+            if is_cancelled():
+                return cancelled_outcome()
             if not _is_numbered_face_image(image_path):
                 continue
             if _is_animated_webp(image_path):
@@ -361,10 +415,7 @@ def build_vector_cache(
                 retained.append(cache_path)
                 continue
             try:
-                vector = _validated_vector(
-                    recognition.vector_for(image_path, profile),
-                    profile,
-                )
+                vector = calculate_vector(image_path)
             except AssetAcquisitionFailure as error:
                 return asset_failure_outcome(error)
             except (RecognitionFailure, OSError) as error:
@@ -393,16 +444,23 @@ def build_vector_cache(
                 continue
             created.append(cache_path)
 
+    if is_cancelled():
+        return cancelled_outcome()
+
     return CacheBuildOutcome(
         created=tuple(created),
         retained=tuple(retained),
         diagnostics=tuple(diagnostics),
+        progress=tuple(progress),
     )
 
 
 def rebuild_vector_cache(
     request: CacheBuildRequest,
     recognition: RecognitionAdapter | None = None,
+    *,
+    on_progress: Callable[[ProgressNotification], None] | None = None,
+    cancellation_requested: Callable[[], bool] | None = None,
 ) -> CacheRebuildOutcome:
     """Recalculate selected-model cache entries in one maintenance root."""
 
@@ -447,6 +505,7 @@ def rebuild_vector_cache(
         )
     diagnostics: list[Diagnostic] = []
     rebuilt: list[Path] = []
+    progress: list[ProgressNotification] = []
     if recognition is None:
         from faceledger.deepface_adapter import DeepFaceRecognition
 
@@ -481,13 +540,58 @@ def rebuild_vector_cache(
             rebuilt=tuple(rebuilt),
             diagnostics=tuple(diagnostics),
             successful=False,
+            progress=tuple(progress),
         )
+
+    def calculate_vector(path: Path) -> Embedding:
+        """Validate one recognition result and emit its completion progress."""
+
+        try:
+            return _validated_vector(recognition.vector_for(path, profile), profile)
+        finally:
+            notification = ProgressNotification(
+                category="cache-rebuild",
+                completed_items=len(progress) + 1,
+                path=path,
+                message=f"Completed cache-rebuild image: {path}",
+            )
+            progress.append(notification)
+            if on_progress is not None:
+                on_progress(notification)
+
+    def is_cancelled() -> bool:
+        return cancellation_requested is not None and cancellation_requested()
+
+    def cancelled_outcome() -> CacheRebuildOutcome:
+        """Report incomplete rebuild work without discarding persisted entries."""
+
+        return CacheRebuildOutcome(
+            rebuilt=tuple(rebuilt),
+            diagnostics=tuple(diagnostics)
+            + (
+                Diagnostic(
+                    severity="info",
+                    category="operation",
+                    code="cache-rebuild-cancelled",
+                    path=None,
+                    message="Cache rebuild cancelled; the operation is incomplete.",
+                ),
+            ),
+            successful=False,
+            progress=tuple(progress),
+            complete=False,
+        )
+
+    if is_cancelled():
+        return cancelled_outcome()
 
     for _folder, files in _maintenance_folder_views(
         root,
         recursive=request.recursive,
         diagnostics=diagnostics,
     ):
+        if is_cancelled():
+            return cancelled_outcome()
         anchor = next((path for path in files if path.name == "folder.jpg"), None)
         if anchor is not None:
             cache_path = _cache_path(anchor, profile)
@@ -495,6 +599,8 @@ def rebuild_vector_cache(
                 continue
             image_vectors: list[Embedding] = []
             for image_path in files:
+                if is_cancelled():
+                    return cancelled_outcome()
                 if not _is_recognized_folder_image(image_path):
                     continue
                 if _is_animated_webp(image_path):
@@ -509,12 +615,7 @@ def rebuild_vector_cache(
                     )
                     continue
                 try:
-                    image_vectors.append(
-                        _validated_vector(
-                            recognition.vector_for(image_path, profile),
-                            profile,
-                        )
-                    )
+                    image_vectors.append(calculate_vector(image_path))
                 except AssetAcquisitionFailure as error:
                     return asset_failure_outcome(error)
                 except (RecognitionFailure, OSError) as error:
@@ -555,6 +656,8 @@ def rebuild_vector_cache(
             continue
 
         for image_path in files:
+            if is_cancelled():
+                return cancelled_outcome()
             if not _is_numbered_face_image(image_path):
                 continue
             if _is_animated_webp(image_path):
@@ -569,10 +672,7 @@ def rebuild_vector_cache(
                 )
                 continue
             try:
-                vector = _validated_vector(
-                    recognition.vector_for(image_path, profile),
-                    profile,
-                )
+                vector = calculate_vector(image_path)
             except AssetAcquisitionFailure as error:
                 return asset_failure_outcome(error)
             except (RecognitionFailure, OSError) as error:
@@ -603,7 +703,12 @@ def rebuild_vector_cache(
                 )
                 continue
             rebuilt.append(cache_path)
+
+    if is_cancelled():
+        return cancelled_outcome()
+
     return CacheRebuildOutcome(
         rebuilt=tuple(rebuilt),
         diagnostics=tuple(diagnostics),
+        progress=tuple(progress),
     )

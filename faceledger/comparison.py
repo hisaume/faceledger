@@ -79,7 +79,7 @@ class ComparisonMetadata:
 
 @dataclass(frozen=True)
 class ProgressNotification:
-    """Presentation-neutral notice for one completed uncached item."""
+    """Presentation-neutral notice for one completed operation item."""
 
     category: str
     completed_items: int
