@@ -155,6 +155,20 @@ This repository uses a single-context domain-documentation layout. See `docs/age
 
 Plan with `grill-with-docs`, `to-spec`, and `to-tickets`; implement each claimed vertical slice with `tdd`; and keep the slice open until its pull request is merged. See `docs/agents/development-workflow.md`.
 
+## General Notes
+
+### Sandbox problems
+
+Consider sandbox issues when a command fails.
+
+If gh reports an invalid token or cannot reach api.github.com, retry the command with escalated network access before concluding authentication is broken; sandbox restrictions can produce misleading auth errors.
+
+### Docker images & Large assets
+
+Before downloading release-qualification assets again, check the preserved Docker images faceledger-qualification:{ubuntu-26.04,debian-13,fedora-44,arch-20260726} and their corresponding base images.
+
+Existing matrix environments, model weights, uv cache, and managed CPython artifact may still be under /tmp/faceledger-v1-matrix/; supplemental host assets were under /tmp/faceledger-v1-qualification.E0pV4g/. These were intentionally uncommitted and /tmp is ephemeral—reuse and preserve them when present.
+
 ---
 ## Implementation Phase
 
@@ -198,6 +212,7 @@ When creating or modifying a non-trivial production function, add a docstring im
 
 - Make a commit with a ticket name and a very short description.
 - Push the branch to remote with `git push -u origin HEAD`.
+- Create a PR with a brief summary. You may reuse the commit title as the title.
 - Report errors and standby, if necessary. Otherwise move on.
 - Report status by stating the next tickets which are open or blocked. Distinguish the tickets which previously became open and has remained open, from the ones which has become unlocked more recently.
 - Standby.
