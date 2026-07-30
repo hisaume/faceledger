@@ -94,3 +94,8 @@ redistribution.
 The complete qualification method and evidence are in
 [`qualification/README.md`](qualification/README.md) and
 [`docs/research/evidence/faceledger-v1/`](docs/research/evidence/faceledger-v1/).
+
+## License
+
+Faceledger source code is available under the [MIT License](LICENSE). Model
+weights remain subject to the separate terms described above.
