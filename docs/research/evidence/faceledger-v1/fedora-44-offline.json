@@ -1,0 +1,495 @@
+{
+  "deepface_version": "0.0.100",
+  "python_version": "3.12.13",
+  "tensorflow_version": "2.21.0",
+  "tf_keras_version": "2.21.0",
+  "detector_backend": "retinaface",
+  "align": true,
+  "cpu_only": true,
+  "recognition_models": [
+    "Facenet512",
+    "ArcFace"
+  ],
+  "static_image_formats": [
+    "JPEG",
+    "PNG",
+    "WEBP"
+  ],
+  "embedding_dimensions": {
+    "Facenet512": 512,
+    "ArcFace": 512
+  },
+  "cache_slugs": {
+    "Facenet512": "facenet512",
+    "ArcFace": "arcface"
+  },
+  "cosine_thresholds": {
+    "Facenet512": 0.3,
+    "ArcFace": 0.68
+  },
+  "phase": "offline",
+  "runtime": {
+    "python": "3.12.13",
+    "implementation": "CPython",
+    "machine": "x86_64",
+    "platform": "Linux-7.0.0-28-generic-x86_64-with-glibc2.43",
+    "libc": [
+      "glibc",
+      "2.43"
+    ],
+    "tensorflow": "2.21.0",
+    "tf_keras": "2.21.0",
+    "installed_distributions": {
+      "lz4": "4.4.5",
+      "protobuf": "7.35.1",
+      "python-dotenv": "1.2.2",
+      "certifi": "2026.7.22",
+      "lightdsa": "0.0.3",
+      "h5py": "3.14.0",
+      "rich": "15.0.0",
+      "absl-py": "2.5.0",
+      "blinker": "1.9.0",
+      "google-pasta": "0.2.0",
+      "libclang": "18.1.1",
+      "retina-face": "0.0.18",
+      "sympy": "1.14.0",
+      "astunparse": "1.6.3",
+      "six": "1.17.0",
+      "flask-cors": "6.0.5",
+      "markdown-it-py": "4.2.0",
+      "gdown": "6.1.0",
+      "itsdangerous": "2.2.0",
+      "typing_extensions": "4.16.0",
+      "pillow": "12.3.0",
+      "Pygments": "2.20.0",
+      "termcolor": "3.3.0",
+      "optree": "0.19.1",
+      "pytz": "2026.2",
+      "grpcio": "1.74.0",
+      "tensorflow": "2.21.0",
+      "Jinja2": "3.1.6",
+      "wrapt": "1.14.2",
+      "ml_dtypes": "0.5.4",
+      "tqdm": "4.69.0",
+      "mdurl": "0.1.2",
+      "requests": "2.34.2",
+      "flatbuffers": "25.12.19",
+      "idna": "3.18",
+      "wheel": "0.47.0",
+      "gunicorn": "26.0.0",
+      "keras": "3.15.0",
+      "filelock": "3.32.0",
+      "mtcnn": "1.0.0",
+      "charset-normalizer": "3.4.9",
+      "namex": "0.1.0",
+      "fire": "0.7.1",
+      "urllib3": "2.7.0",
+      "tzdata": "2026.3",
+      "mpmath": "1.3.0",
+      "tf_keras": "2.21.0",
+      "deepface": "0.0.100",
+      "lightecc": "0.0.7",
+      "MarkupSafe": "3.0.3",
+      "beautifulsoup4": "4.15.0",
+      "click": "8.4.2",
+      "joblib": "1.5.3",
+      "opencv-python": "4.11.0.86",
+      "Werkzeug": "3.1.8",
+      "python-dateutil": "2.9.0.post0",
+      "PySocks": "1.7.1",
+      "pandas": "2.3.3",
+      "opt_einsum": "3.4.0",
+      "numpy": "2.5.1",
+      "gast": "0.4.0",
+      "Flask": "3.1.3",
+      "lightphe": "0.0.25",
+      "setuptools": "83.0.0",
+      "soupsieve": "2.9.1",
+      "packaging": "26.2"
+    },
+    "wheel_tags": {
+      "lz4": [
+        "cp312-cp312-manylinux_2_17_x86_64",
+        "cp312-cp312-manylinux2014_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "protobuf": [
+        "cp310-abi3-manylinux2014_x86_64"
+      ],
+      "python-dotenv": [
+        "py3-none-any"
+      ],
+      "certifi": [
+        "py3-none-any"
+      ],
+      "lightdsa": [
+        "py3-none-any"
+      ],
+      "h5py": [
+        "cp312-cp312-manylinux_2_17_x86_64",
+        "cp312-cp312-manylinux2014_x86_64"
+      ],
+      "rich": [
+        "py3-none-any"
+      ],
+      "absl-py": [
+        "py3-none-any"
+      ],
+      "blinker": [
+        "py3-none-any"
+      ],
+      "google-pasta": [
+        "py3-none-any"
+      ],
+      "libclang": [
+        "py2-none-manylinux2010_x86_64",
+        "py3-none-manylinux2010_x86_64"
+      ],
+      "retina-face": [
+        "py3-none-any"
+      ],
+      "sympy": [
+        "py3-none-any"
+      ],
+      "astunparse": [
+        "py2-none-any",
+        "py3-none-any"
+      ],
+      "six": [
+        "py2-none-any",
+        "py3-none-any"
+      ],
+      "flask-cors": [
+        "py3-none-any"
+      ],
+      "markdown-it-py": [
+        "py3-none-any"
+      ],
+      "gdown": [
+        "py3-none-any"
+      ],
+      "itsdangerous": [
+        "py3-none-any"
+      ],
+      "typing-extensions": [
+        "py3-none-any"
+      ],
+      "pillow": [
+        "cp312-cp312-manylinux_2_27_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "pygments": [
+        "py3-none-any"
+      ],
+      "termcolor": [
+        "py3-none-any"
+      ],
+      "optree": [
+        "cp312-cp312-manylinux_2_27_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "pytz": [
+        "py2-none-any",
+        "py3-none-any"
+      ],
+      "grpcio": [
+        "cp312-cp312-manylinux_2_17_x86_64",
+        "cp312-cp312-manylinux2014_x86_64"
+      ],
+      "tensorflow": [
+        "cp312-cp312-manylinux_2_27_x86_64"
+      ],
+      "jinja2": [
+        "py3-none-any"
+      ],
+      "wrapt": [
+        "py3-none-any"
+      ],
+      "ml-dtypes": [
+        "cp312-cp312-manylinux_2_27_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "tqdm": [
+        "py3-none-any"
+      ],
+      "mdurl": [
+        "py3-none-any"
+      ],
+      "requests": [
+        "py3-none-any"
+      ],
+      "flatbuffers": [
+        "py2-none-any",
+        "py3-none-any"
+      ],
+      "idna": [
+        "py3-none-any"
+      ],
+      "wheel": [
+        "py3-none-any"
+      ],
+      "gunicorn": [
+        "py3-none-any"
+      ],
+      "keras": [
+        "py3-none-any"
+      ],
+      "filelock": [
+        "py3-none-any"
+      ],
+      "mtcnn": [
+        "py3-none-any"
+      ],
+      "charset-normalizer": [
+        "cp312-cp312-manylinux_2_17_x86_64",
+        "cp312-cp312-manylinux2014_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "namex": [
+        "py3-none-any"
+      ],
+      "fire": [
+        "py3-none-any"
+      ],
+      "urllib3": [
+        "py3-none-any"
+      ],
+      "tzdata": [
+        "py2-none-any",
+        "py3-none-any"
+      ],
+      "mpmath": [
+        "py3-none-any"
+      ],
+      "tf-keras": [
+        "py3-none-any"
+      ],
+      "deepface": [
+        "py3-none-any"
+      ],
+      "lightecc": [
+        "py3-none-any"
+      ],
+      "markupsafe": [
+        "cp312-cp312-manylinux_2_17_x86_64",
+        "cp312-cp312-manylinux2014_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "beautifulsoup4": [
+        "py3-none-any"
+      ],
+      "click": [
+        "py3-none-any"
+      ],
+      "joblib": [
+        "py3-none-any"
+      ],
+      "opencv-python": [
+        "cp37-abi3-manylinux_2_17_x86_64",
+        "cp37-abi3-manylinux2014_x86_64"
+      ],
+      "werkzeug": [
+        "py3-none-any"
+      ],
+      "python-dateutil": [
+        "py2-none-any",
+        "py3-none-any"
+      ],
+      "pysocks": [
+        "py3-none-any"
+      ],
+      "pandas": [
+        "cp312-cp312-manylinux_2_24_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "opt-einsum": [
+        "py3-none-any"
+      ],
+      "numpy": [
+        "cp312-cp312-manylinux_2_27_x86_64",
+        "cp312-cp312-manylinux_2_28_x86_64"
+      ],
+      "gast": [
+        "py3-none-any"
+      ],
+      "flask": [
+        "py3-none-any"
+      ],
+      "lightphe": [
+        "py3-none-any"
+      ],
+      "setuptools": [
+        "py3-none-any"
+      ],
+      "soupsieve": [
+        "py3-none-any"
+      ],
+      "packaging": [
+        "py3-none-any"
+      ]
+    }
+  },
+  "runtime_contract_errors": [],
+  "lock_sha256": "fa8bb82406abb104dacd23bf4916082278afdfbb8b2e8a7ab9e40036e5146809",
+  "assets_before": [
+    {
+      "path": "arcface_weights.h5",
+      "bytes": 137026640,
+      "sha256": "6336979c0c602cae08d1122a66f4dfb862d059bbcd8ef80306aef2b2249b0c93"
+    },
+    {
+      "path": "facenet512_weights.h5",
+      "bytes": 94955648,
+      "sha256": "3f76b5117a9ca574d536af8199e6720089eb4ad3dc7e93534496d88265de864f"
+    },
+    {
+      "path": "retinaface.h5",
+      "bytes": 118667368,
+      "sha256": "ecb2393a89da3dd3d6796ad86660e298f62a0c8ae7578d92eb6af14e0bb93adf"
+    }
+  ],
+  "assets": [
+    {
+      "path": "arcface_weights.h5",
+      "bytes": 137026640,
+      "sha256": "6336979c0c602cae08d1122a66f4dfb862d059bbcd8ef80306aef2b2249b0c93"
+    },
+    {
+      "path": "facenet512_weights.h5",
+      "bytes": 94955648,
+      "sha256": "3f76b5117a9ca574d536af8199e6720089eb4ad3dc7e93534496d88265de864f"
+    },
+    {
+      "path": "retinaface.h5",
+      "bytes": 118667368,
+      "sha256": "ecb2393a89da3dd3d6796ad86660e298f62a0c8ae7578d92eb6af14e0bb93adf"
+    }
+  ],
+  "asset_lifecycle_errors": [],
+  "checks": [
+    {
+      "model": "Facenet512",
+      "format": "JPEG",
+      "status": "passed",
+      "embedding_dimensions": 512
+    },
+    {
+      "model": "Facenet512",
+      "format": "PNG",
+      "status": "passed",
+      "embedding_dimensions": 512
+    },
+    {
+      "model": "Facenet512",
+      "format": "WEBP",
+      "status": "passed",
+      "embedding_dimensions": 512
+    },
+    {
+      "model": "ArcFace",
+      "format": "JPEG",
+      "status": "passed",
+      "embedding_dimensions": 512
+    },
+    {
+      "model": "ArcFace",
+      "format": "PNG",
+      "status": "passed",
+      "embedding_dimensions": 512
+    },
+    {
+      "model": "ArcFace",
+      "format": "WEBP",
+      "status": "passed",
+      "embedding_dimensions": 512
+    }
+  ],
+  "operation_checks": [
+    {
+      "model": "Facenet512",
+      "format": "JPEG",
+      "operations": [
+        "compare-uncached",
+        "cache-build",
+        "compare-cached",
+        "cache-rebuild",
+        "trash"
+      ],
+      "acquisition_notices": [],
+      "status": "passed"
+    },
+    {
+      "model": "Facenet512",
+      "format": "PNG",
+      "operations": [
+        "compare-uncached",
+        "cache-build",
+        "compare-cached",
+        "cache-rebuild",
+        "trash"
+      ],
+      "acquisition_notices": [],
+      "status": "passed"
+    },
+    {
+      "model": "Facenet512",
+      "format": "WEBP",
+      "operations": [
+        "compare-uncached",
+        "cache-build",
+        "compare-cached",
+        "cache-rebuild",
+        "trash"
+      ],
+      "acquisition_notices": [],
+      "status": "passed"
+    },
+    {
+      "model": "ArcFace",
+      "format": "JPEG",
+      "operations": [
+        "compare-uncached",
+        "cache-build",
+        "compare-cached",
+        "cache-rebuild",
+        "trash"
+      ],
+      "acquisition_notices": [],
+      "status": "passed"
+    },
+    {
+      "model": "ArcFace",
+      "format": "PNG",
+      "operations": [
+        "compare-uncached",
+        "cache-build",
+        "compare-cached",
+        "cache-rebuild",
+        "trash"
+      ],
+      "acquisition_notices": [],
+      "status": "passed"
+    },
+    {
+      "model": "ArcFace",
+      "format": "WEBP",
+      "operations": [
+        "compare-uncached",
+        "cache-build",
+        "compare-cached",
+        "cache-rebuild",
+        "trash"
+      ],
+      "acquisition_notices": [],
+      "status": "passed"
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "public_operations_passed": 6,
+    "public_operations_failed": 0,
+    "asset_lifecycle_failed": 0,
+    "runtime_contract_failed": 0
+  }
+}

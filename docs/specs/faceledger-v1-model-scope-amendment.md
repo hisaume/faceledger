@@ -65,3 +65,17 @@ while making future runtime upgrades and qualification materially simpler.
 The evidence leading to this change is retained in the
 [runtime spike note](../research/deepface-runtime-baseline.md) and the
 [DeepFace/tf-keras compatibility review](../research/latest-deepface-tf-keras-compatibility.md).
+
+## Implementation Interpretation
+
+- “all eleven models” in older specifications and tickets means these two
+  models;
+
+- release qualification and licensing cover these two models plus
+  RetinaFace;
+
+- eleven-model research is historical evidence, not current acceptance
+  scope;
+
+- DeepFace the recognition model is excluded, while deepface the package
+  remains required.
