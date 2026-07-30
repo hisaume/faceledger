@@ -15,5 +15,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: echo "Deployment will go here."
-      
+      - run: echo "Workflow successful."
