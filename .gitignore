@@ -1,5 +1,6 @@
 
 *.code-workspace
+.vscode/
 RAW-NOTES/
 __pycache__/
 *.py[cod]
