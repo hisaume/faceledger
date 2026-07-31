@@ -45,6 +45,11 @@ A recognized image from which exactly one face is detected and a structurally
 valid embedding can be calculated.
 _Avoid_: Multi-face image, merely loadable image
 
+**Supported image file**:
+A regular local file whose content is JPEG, PNG, or one-frame static WebP. It
+may still fail to be a usable face image.
+_Avoid_: Supported extension, usable face image
+
 **Candidate match**:
 A target identity whose model-specific distance is within the match threshold.
 It is a plausible visual match, not a verified identification.

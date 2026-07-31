@@ -153,7 +153,19 @@ This repository uses a single-context domain-documentation layout. See `docs/age
 
 ### Delivery workflow
 
-Plan with `grill-with-docs`, `to-spec`, and `to-tickets`; implement each claimed vertical slice with `tdd`; and keep the slice open until its pull request is merged. See `docs/agents/development-workflow.md`.
+3-step planning in this order:
+
+1. `grill-with-docs`
+2. `to-spec`
+3. `to-tickets`
+4. Implement each claimed vertical slice with `tdd`; and keep the slice open until its pull request is merged. See `docs/agents/development-workflow.md`.
+
+- #### Versioning note
+
+    The files `faceledger-v1.md` and `faceledger-v1-model-scope-amendment.md` (in that chronological order) under `docs/specs/` document the original **core functionality** only. Treat those specifications as historical design references only.
+
+    Treat `faceledger-v1-cli.md` as the primary specification.
+    Also, `docs/reference/core-api.md` provides a good overview of the core files.
 
 ## General Notes
 
@@ -166,8 +178,6 @@ If gh reports an invalid token or cannot reach api.github.com, retry the command
 ### Docker images & Large assets
 
 Before downloading release-qualification assets again, check the preserved Docker images faceledger-qualification:{ubuntu-26.04,debian-13,fedora-44,arch-20260726} and their corresponding base images.
-
-Existing matrix environments, model weights, uv cache, and managed CPython artifact may still be under /tmp/faceledger-v1-matrix/; supplemental host assets were under /tmp/faceledger-v1-qualification.E0pV4g/. These were intentionally uncommitted and /tmp is ephemeral—reuse and preserve them when present.
 
 ---
 ## Implementation Phase
@@ -223,15 +233,18 @@ When creating or modifying a non-trivial production function, add a docstring im
 
 - Generally, DeepFace is an untyped external dependency. Keep all direct `deepface` imports and DeepFace-specific logic isolated behind the adapter boundary, preserve the targeted `# type: ignore[import-untyped]`, and return normalized typed application data. If maintaining this boundary in one module would mix distinct responsibilities or create excessive complexity, propose the additional adapter module and explain the intended separation before implementing it.
 
+### Core files
+
+Core functionality files are described in `docs/reference/core-api.md`. Update this reference when the implementation of these core files is changed.
+
 ### Live Scoping Doc during Implementation
 
 Treat the following scoping document as an overlay on every original spec, ADR, and ticket.
 
 For version 1:
 
-      docs/specs/faceledger-v1-model-scope-amendment.md
+      None so far.
 
 - Key points:
 
-  “All eleven models” now means Facenet512 and ArcFace only; retain the DeepFace 0.0.100 package and
-  the CPython 3.12/TensorFlow 2.21/tf-keras 2.21 runtime. Historical eleven-model research remains evidence, not current acceptance scope.
+      None so far
