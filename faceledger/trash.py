@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from faceledger.comparison import Diagnostic, ProgressNotification
+from faceledger.comparison import Diagnostic, ProgressNotification, _DiagnosticCollector
 from faceledger.paths import application_data_root
 from faceledger.vector_profiles import DEFAULT_MODEL_NAME, VECTOR_PROFILES
 
@@ -181,24 +181,27 @@ def trash_vector_cache(
     request: TrashRequest,
     *,
     now: Callable[[], datetime] | None = None,
+    on_diagnostic: Callable[[Diagnostic], None] | None = None,
     on_progress: Callable[[ProgressNotification], None] | None = None,
     cancellation_requested: Callable[[], bool] | None = None,
 ) -> TrashOutcome:
     """Move exactly selected-model cache entries into recoverable trash."""
 
+    diagnostics = _DiagnosticCollector(on_diagnostic)
     if request.model_name not in VECTOR_PROFILES:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="recognition-model-unsupported",
+                path=None,
+                message=f"Unsupported recognition model: {request.model_name}.",
+            )
+        )
         return TrashOutcome(
             action_directory=None,
             manifest_path=None,
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="recognition-model-unsupported",
-                    path=None,
-                    message=f"Unsupported recognition model: {request.model_name}.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     root = request.root.resolve()
@@ -212,24 +215,24 @@ def trash_vector_cache(
         except OSError as error:
             root_error = error
     if root_error is not None:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="maintenance",
+                code="maintenance-root-invalid",
+                path=root,
+                message=str(root_error),
+            )
+        )
         return TrashOutcome(
             action_directory=None,
             manifest_path=None,
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="maintenance",
-                    code="maintenance-root-invalid",
-                    path=root,
-                    message=str(root_error),
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
 
     profile = VECTOR_PROFILES[request.model_name]
     suffix = f".{profile.cache_slug}.npy"
-    diagnostics: list[Diagnostic] = []
     progress: list[ProgressNotification] = []
     selected = _discover_cache_entries(
         root,
@@ -290,20 +293,20 @@ def trash_vector_cache(
     def cancelled_outcome() -> TrashOutcome:
         """Report incomplete trash work while preserving its durable manifest."""
 
+        diagnostics.append(
+            Diagnostic(
+                severity="info",
+                category="operation",
+                code="trash-cancelled",
+                path=None,
+                message="Trash operation cancelled; the operation is incomplete.",
+            )
+        )
         return TrashOutcome(
             action_directory=action_directory,
             manifest_path=manifest_path,
             moved=tuple(moved),
-            diagnostics=tuple(diagnostics)
-            + (
-                Diagnostic(
-                    severity="info",
-                    category="operation",
-                    code="trash-cancelled",
-                    path=None,
-                    message="Trash operation cancelled; the operation is incomplete.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             message=f"Moved {len(moved)} {profile.model_name} cache entries to trash",
             successful=False,
             progress=tuple(progress),

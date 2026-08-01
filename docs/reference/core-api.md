@@ -43,11 +43,13 @@
 - Returns ranked candidates together with diagnostics, progress, status,
   completeness, comparison count, and resolved metadata.
 
-## `compare(request, recognition=None, *, on_progress=None, cancellation_requested=None)`
+## `compare(request, recognition=None, *, on_diagnostic=None, on_progress=None, cancellation_requested=None)`
 
 - Compares one source identity with identities in the selected target root and
   returns a `ComparisonOutcome`. Comparison may reuse compatible caches but
   never writes, replaces, or removes them.
+- `on_diagnostic` receives each diagnostic as it arises while the same notice is
+  retained in the outcome; callback exceptions propagate to the caller.
 - `on_progress` receives completed-item notifications; cancellation is checked
   at safe item boundaries and suppresses partial candidate results.
 
@@ -68,17 +70,19 @@
 - Reports successfully replaced caches together with operation diagnostics,
   progress, status, and completeness.
 
-## `build_vector_cache(request, recognition=None, *, on_progress=None, cancellation_requested=None)`
+## `build_vector_cache(request, recognition=None, *, on_diagnostic=None, on_progress=None, cancellation_requested=None)`
 
 - Creates missing selected-model cache entries and replaces structurally invalid
   ones while retaining compatible entries. Item failures are reported and do
   not stop later work unless the operation itself cannot continue.
+- `on_diagnostic` streams retained diagnostics and propagates callback failures.
 
-## `rebuild_vector_cache(request, recognition=None, *, on_progress=None, cancellation_requested=None)`
+## `rebuild_vector_cache(request, recognition=None, *, on_diagnostic=None, on_progress=None, cancellation_requested=None)`
 
 - Recalculates every in-scope selected-model cache, installing a replacement
   only after its vector is successfully calculated and persisted. Completed
   replacements remain in place if the operation is cancelled.
+- `on_diagnostic` streams retained diagnostics and propagates callback failures.
 
 # trash.py
 
@@ -92,11 +96,12 @@
 - Reports the recovery directory, durable manifest, moved entries, diagnostics,
   progress, status, and completeness of a trash action.
 
-## `trash_vector_cache(request, *, now=None, on_progress=None, cancellation_requested=None)`
+## `trash_vector_cache(request, *, now=None, on_diagnostic=None, on_progress=None, cancellation_requested=None)`
 
 - Moves only exact selected-model cache entries into XDG application trash and
   records every planned, moved, or failed item in a recovery manifest. An empty
   selection succeeds without creating a trash action.
+- `on_diagnostic` streams retained diagnostics and propagates callback failures.
 
 # presentation.py
 

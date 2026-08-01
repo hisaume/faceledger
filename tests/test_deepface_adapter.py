@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from faceledger.comparison import ComparisonRequest, compare
+from faceledger.comparison import ComparisonRequest, Diagnostic, compare
 
 MODEL_ASSETS = {
     "Facenet512": "facenet512_weights.h5",
@@ -150,8 +150,13 @@ class DeepFaceAdapterTests(unittest.TestCase):
             root = Path(temporary_directory)
             source, target_root = _comparison_paths(root)
             deepface_home = root / "deepface-home"
+            observed: list[Diagnostic] = []
 
             def represent(**_arguments: object) -> list[dict[str, object]]:
+                self.assertEqual(
+                    [diagnostic.code for diagnostic in observed],
+                    ["model-asset-acquisition", "model-asset-acquisition"],
+                )
                 _install_assets(deepface_home, "Facenet512")
                 return [{"embedding": [1.0] + [0.0] * 511}]
 
@@ -170,7 +175,8 @@ class DeepFaceAdapterTests(unittest.TestCase):
                         source=source,
                         target_root=target_root,
                         reuse_cache=False,
-                    )
+                    ),
+                    on_diagnostic=observed.append,
                 )
 
         acquisition_notices = [
@@ -179,6 +185,7 @@ class DeepFaceAdapterTests(unittest.TestCase):
             if diagnostic.code == "model-asset-acquisition"
         ]
         self.assertTrue(outcome.successful)
+        self.assertEqual(outcome.diagnostics, tuple(observed))
         acquisition_paths = [diagnostic.path for diagnostic in acquisition_notices]
         self.assertNotIn(None, acquisition_paths)
         self.assertEqual(
