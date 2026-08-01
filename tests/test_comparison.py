@@ -716,6 +716,36 @@ class SinglePersonTargetComparisonTests(unittest.TestCase):
 
 
 class MultiPersonTargetComparisonTests(unittest.TestCase):
+    def test_breaks_equal_distance_ties_by_result_identity_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.jpg"
+            source.write_bytes(b"source")
+            target_root = root / "Event Photos"
+            target_root.mkdir()
+            root_face = target_root / "Z.face0.jpg"
+            root_face.write_bytes(b"root face")
+            nested_folder = target_root / "A"
+            nested_folder.mkdir()
+            nested_face = nested_folder / "person.face0.jpg"
+            nested_face.write_bytes(b"nested face")
+
+            outcome = compare(
+                ComparisonRequest(source=source, target_root=target_root),
+                DeterministicRecognition(
+                    {
+                        source: (1.0, 0.0),
+                        root_face: (1.0, 0.0),
+                        nested_face: (1.0, 0.0),
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                [match.identity_path for match in outcome.matches],
+                [Path("A/person.face0.jpg"), Path("Z.face0.jpg")],
+            )
+
     def test_orders_threshold_qualified_candidates_by_cosine_distance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
