@@ -130,7 +130,7 @@ wheels = [
 [[package]]
 name = "faceledger"
 version = "0.5.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "deepface" },
     { name = "numpy" },

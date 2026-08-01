@@ -36,8 +36,16 @@ uv sync --locked
 ./scripts/check.sh
 ```
 
-This source checkout and its lock are the v1 delivery boundary. The repository
-is not currently built as a Python wheel or native distribution package.
+The installed launcher and module route share the same application entry point:
+
+```console
+uv run --locked faceledger --help
+uv run --locked python -m faceledger --help
+```
+
+This source checkout and its lock remain the v1 reproducibility boundary. The
+project can build source and wheel distributions, but publication and native
+distribution packages are outside the version-one scope.
 
 ## Operation boundary
 

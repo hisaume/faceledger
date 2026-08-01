@@ -13,8 +13,15 @@ dependencies = [
     "tf-keras==2.21.0",
 ]
 
+[project.scripts]
+faceledger = "faceledger.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"
+
 [tool.uv]
-package = false
+package = true
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
@@ -22,6 +29,11 @@ required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 exclude-newer = "2026-07-24T00:00:00Z"
+
+[tool.uv.build-backend]
+module-root = ""
+module-name = "faceledger"
+source-exclude = [".mypy_cache", ".ruff_cache"]
 
 [tool.mypy]
 strict = true
