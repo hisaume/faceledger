@@ -215,8 +215,8 @@ When creating or modifying a non-trivial production function, add a docstring im
 ### Cycle start
 
 - Check remote to see if PR has succeeded for previous tickets, and update Beads accordingly.
-- Check and fast-forward `main` branch as needed.
-- At the start of each ticket, create and check out a new ticket-specific Git branch. Work for different tickets must not share a branch. You may name the branch without a prefix i.e. `ticket/fl-repo-60a.17-trash-cache` should just be `fl-repo-60a.17-trash-cache` during the initial development of v.1.
+- Check and fast-forward or rebase `main` branch as needed.
+- At the start of each ticket, create and check out a new ticket-specific Git branch. Work for different tickets must not share a branch. You may name the branch without a prefix i.e. `ticket/fl-repo-60a.17-trash-cache` should just be `fl-repo-60a.17-trash-cache`. You may name the branch after the corresponding bead ticket name.
 
 ### Cycle end
 

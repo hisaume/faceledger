@@ -69,6 +69,26 @@ class Diagnostic:
     message: str
 
 
+class _DiagnosticCollector(list[Diagnostic]):
+    """Retain diagnostics and stream each one as it arises."""
+
+    def __init__(
+        self,
+        on_diagnostic: Callable[[Diagnostic], None] | None,
+    ) -> None:
+        """Configure the optional presentation callback."""
+
+        super().__init__()
+        self._on_diagnostic = on_diagnostic
+
+    def append(self, diagnostic: Diagnostic) -> None:
+        """Retain a diagnostic before presenting it to the callback."""
+
+        super().append(diagnostic)
+        if self._on_diagnostic is not None:
+            self._on_diagnostic(diagnostic)
+
+
 @dataclass(frozen=True)
 class ComparisonMetadata:
     source: Path
@@ -286,40 +306,50 @@ def compare(
     request: ComparisonRequest,
     recognition: RecognitionAdapter | None = None,
     *,
+    on_diagnostic: Callable[[Diagnostic], None] | None = None,
     on_progress: Callable[[ProgressNotification], None] | None = None,
     cancellation_requested: Callable[[], bool] | None = None,
 ) -> ComparisonOutcome:
     """Compare one standalone source with the selected root identity."""
 
+    diagnostics = _DiagnosticCollector(on_diagnostic)
+
+    def emit_diagnostic(diagnostic: Diagnostic) -> None:
+        """Retain and stream one diagnostic notification."""
+
+        diagnostics.append(diagnostic)
+
     if request.model_name not in VECTOR_PROFILES:
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="recognition-model-unsupported",
+                path=None,
+                message=f"Unsupported recognition model: {request.model_name}.",
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="recognition-model-unsupported",
-                    path=None,
-                    message=f"Unsupported recognition model: {request.model_name}.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     profile = VECTOR_PROFILES[request.model_name]
     if request.threshold is not None and (
         not math.isfinite(request.threshold) or not 0.0 <= request.threshold <= 2.0
     ):
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="match-threshold-invalid",
+                path=None,
+                message="The match threshold must be finite and within [0, 2].",
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="match-threshold-invalid",
-                    path=None,
-                    message="The match threshold must be finite and within [0, 2].",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     active_threshold = (
@@ -327,31 +357,33 @@ def compare(
     )
 
     if request.source is not None and request.source_folder is not None:
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="source-selection-ambiguous",
+                path=None,
+                message="Select one source image or source folder, not both.",
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="source-selection-ambiguous",
-                    path=None,
-                    message="Select one source image or source folder, not both.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     if request.source is None and request.source_folder is None:
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="source-selection-required",
+                path=None,
+                message="Select exactly one source image or source folder.",
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="source-selection-required",
-                    path=None,
-                    message="Select exactly one source image or source folder.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
 
@@ -372,60 +404,62 @@ def compare(
         except OSError as error:
             target_root_error = error
     if target_root_error is not None:
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="target",
+                code="target-root-invalid",
+                path=target_root,
+                message=str(target_root_error),
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="target",
-                    code="target-root-invalid",
-                    path=target_root,
-                    message=str(target_root_error),
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     if source is not None and not source.is_file():
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="source",
+                code="source-image-invalid",
+                path=source,
+                message="The selected source image is not a readable file.",
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="source",
-                    code="source-image-invalid",
-                    path=source,
-                    message="The selected source image is not a readable file.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     if source_folder is not None and (
         not source_folder.is_dir() or not (source_folder / "folder.jpg").is_file()
     ):
+        emit_diagnostic(
+            Diagnostic(
+                severity="error",
+                category="source",
+                code="source-folder-invalid",
+                path=source_folder,
+                message=(
+                    "Select a single-person source folder containing exact "
+                    "lowercase folder.jpg."
+                ),
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="source",
-                    code="source-folder-invalid",
-                    path=source_folder,
-                    message=(
-                        "Select a single-person source folder containing exact "
-                        "lowercase folder.jpg."
-                    ),
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
 
-    diagnostics: list[Diagnostic] = []
     progress: list[ProgressNotification] = []
     if recognition is None:
         from faceledger.deepface_adapter import DeepFaceRecognition
 
         def announce_missing_asset(path: Path) -> None:
-            diagnostics.append(
+            emit_diagnostic(
                 Diagnostic(
                     severity="info",
                     category="dependency",
@@ -491,18 +525,18 @@ def compare(
     def cancelled_outcome(compared: int = 0) -> ComparisonOutcome:
         """Discard candidates and report an incomplete comparison."""
 
+        emit_diagnostic(
+            Diagnostic(
+                severity="info",
+                category="operation",
+                code="comparison-cancelled",
+                path=None,
+                message="Comparison cancelled; the operation is incomplete.",
+            )
+        )
         return ComparisonOutcome(
             matches=(),
-            diagnostics=tuple(diagnostics)
-            + (
-                Diagnostic(
-                    severity="info",
-                    category="operation",
-                    code="comparison-cancelled",
-                    path=None,
-                    message="Comparison cancelled; the operation is incomplete.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             progress=tuple(progress),
             successful=False,
             complete=False,
@@ -579,18 +613,18 @@ def compare(
         except AssetAcquisitionFailure as error:
             return asset_failure_outcome(error)
         except RecognitionFailure as error:
+            emit_diagnostic(
+                Diagnostic(
+                    severity="error",
+                    category="source",
+                    code="source-image-unusable",
+                    path=source,
+                    message=str(error),
+                )
+            )
             return ComparisonOutcome(
                 matches=(),
-                diagnostics=tuple(diagnostics)
-                + (
-                    Diagnostic(
-                        severity="error",
-                        category="source",
-                        code="source-image-unusable",
-                        path=source,
-                        message=str(error),
-                    ),
-                ),
+                diagnostics=tuple(diagnostics),
                 progress=tuple(progress),
                 successful=False,
                 metadata=metadata,
@@ -694,7 +728,7 @@ def compare(
             except AssetAcquisitionFailure as error:
                 return asset_failure_outcome(error)
             except (RecognitionFailure, OSError) as error:
-                diagnostics.append(
+                emit_diagnostic(
                     Diagnostic(
                         severity="warning",
                         category="target",

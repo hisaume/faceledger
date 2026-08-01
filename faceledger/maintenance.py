@@ -20,6 +20,7 @@ from faceledger.comparison import (
     RecognitionAdapter,
     RecognitionFailure,
     _cache_path,
+    _DiagnosticCollector,
     _folder_vector,
     _is_animated_webp,
     _is_numbered_face_image,
@@ -162,23 +163,26 @@ def build_vector_cache(
     request: CacheBuildRequest,
     recognition: RecognitionAdapter | None = None,
     *,
+    on_diagnostic: Callable[[Diagnostic], None] | None = None,
     on_progress: Callable[[ProgressNotification], None] | None = None,
     cancellation_requested: Callable[[], bool] | None = None,
 ) -> CacheBuildOutcome:
     """Create missing selected-model cache entries in one maintenance root."""
 
+    diagnostics = _DiagnosticCollector(on_diagnostic)
     if request.model_name not in VECTOR_PROFILES:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="recognition-model-unsupported",
+                path=None,
+                message=f"Unsupported recognition model: {request.model_name}.",
+            )
+        )
         return CacheBuildOutcome(
             created=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="recognition-model-unsupported",
-                    path=None,
-                    message=f"Unsupported recognition model: {request.model_name}.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     profile = VECTOR_PROFILES[request.model_name]
@@ -193,21 +197,21 @@ def build_vector_cache(
         except OSError as error:
             root_error = error
     if root_error is not None:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="maintenance",
+                code="maintenance-root-invalid",
+                path=root,
+                message=str(root_error),
+            )
+        )
         return CacheBuildOutcome(
             created=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="maintenance",
-                    code="maintenance-root-invalid",
-                    path=root,
-                    message=str(root_error),
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
 
-    diagnostics: list[Diagnostic] = []
     created: list[Path] = []
     retained: list[Path] = []
     progress: list[ProgressNotification] = []
@@ -271,19 +275,19 @@ def build_vector_cache(
     def cancelled_outcome() -> CacheBuildOutcome:
         """Report incomplete build work without discarding persisted entries."""
 
+        diagnostics.append(
+            Diagnostic(
+                severity="info",
+                category="operation",
+                code="cache-build-cancelled",
+                path=None,
+                message="Cache build cancelled; the operation is incomplete.",
+            )
+        )
         return CacheBuildOutcome(
             created=tuple(created),
             retained=tuple(retained),
-            diagnostics=tuple(diagnostics)
-            + (
-                Diagnostic(
-                    severity="info",
-                    category="operation",
-                    code="cache-build-cancelled",
-                    path=None,
-                    message="Cache build cancelled; the operation is incomplete.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
             progress=tuple(progress),
             complete=False,
@@ -459,23 +463,26 @@ def rebuild_vector_cache(
     request: CacheBuildRequest,
     recognition: RecognitionAdapter | None = None,
     *,
+    on_diagnostic: Callable[[Diagnostic], None] | None = None,
     on_progress: Callable[[ProgressNotification], None] | None = None,
     cancellation_requested: Callable[[], bool] | None = None,
 ) -> CacheRebuildOutcome:
     """Recalculate selected-model cache entries in one maintenance root."""
 
+    diagnostics = _DiagnosticCollector(on_diagnostic)
     if request.model_name not in VECTOR_PROFILES:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="input",
+                code="recognition-model-unsupported",
+                path=None,
+                message=f"Unsupported recognition model: {request.model_name}.",
+            )
+        )
         return CacheRebuildOutcome(
             rebuilt=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="input",
-                    code="recognition-model-unsupported",
-                    path=None,
-                    message=f"Unsupported recognition model: {request.model_name}.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
     profile = VECTOR_PROFILES[request.model_name]
@@ -490,20 +497,20 @@ def rebuild_vector_cache(
         except OSError as error:
             root_error = error
     if root_error is not None:
+        diagnostics.append(
+            Diagnostic(
+                severity="error",
+                category="maintenance",
+                code="maintenance-root-invalid",
+                path=root,
+                message=str(root_error),
+            )
+        )
         return CacheRebuildOutcome(
             rebuilt=(),
-            diagnostics=(
-                Diagnostic(
-                    severity="error",
-                    category="maintenance",
-                    code="maintenance-root-invalid",
-                    path=root,
-                    message=str(root_error),
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
         )
-    diagnostics: list[Diagnostic] = []
     rebuilt: list[Path] = []
     progress: list[ProgressNotification] = []
     if recognition is None:
@@ -565,18 +572,18 @@ def rebuild_vector_cache(
     def cancelled_outcome() -> CacheRebuildOutcome:
         """Report incomplete rebuild work without discarding persisted entries."""
 
+        diagnostics.append(
+            Diagnostic(
+                severity="info",
+                category="operation",
+                code="cache-rebuild-cancelled",
+                path=None,
+                message="Cache rebuild cancelled; the operation is incomplete.",
+            )
+        )
         return CacheRebuildOutcome(
             rebuilt=tuple(rebuilt),
-            diagnostics=tuple(diagnostics)
-            + (
-                Diagnostic(
-                    severity="info",
-                    category="operation",
-                    code="cache-rebuild-cancelled",
-                    path=None,
-                    message="Cache rebuild cancelled; the operation is incomplete.",
-                ),
-            ),
+            diagnostics=tuple(diagnostics),
             successful=False,
             progress=tuple(progress),
             complete=False,

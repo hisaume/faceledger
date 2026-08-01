@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from faceledger.comparison import ProgressNotification
+from faceledger.comparison import Diagnostic, ProgressNotification
 from faceledger.maintenance import (
     CacheBuildRequest,
     build_vector_cache,
@@ -48,6 +48,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
                 }
             )
             observed: list[ProgressNotification] = []
+            observed_diagnostics: list[Diagnostic] = []
             cancellation = {"requested": False}
 
             def observe(notification: ProgressNotification) -> None:
@@ -57,6 +58,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
             outcome = build_vector_cache(
                 CacheBuildRequest(root=root),
                 recognition,
+                on_diagnostic=observed_diagnostics.append,
                 on_progress=observe,
                 cancellation_requested=lambda: cancellation["requested"],
             )
@@ -75,6 +77,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["cache-build-cancelled"],
             )
+            self.assertEqual(outcome.diagnostics, tuple(observed_diagnostics))
             self.assertEqual(recognition.calls, [first_face])
             np.testing.assert_array_equal(np.load(first_cache), unit_vector(0))
             self.assertFalse(unprocessed_cache.exists())
@@ -100,6 +103,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
                 }
             )
             observed: list[ProgressNotification] = []
+            observed_diagnostics: list[Diagnostic] = []
             cancellation = {"requested": False}
 
             def observe(notification: ProgressNotification) -> None:
@@ -109,6 +113,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
             outcome = rebuild_vector_cache(
                 CacheBuildRequest(root=root),
                 recognition,
+                on_diagnostic=observed_diagnostics.append,
                 on_progress=observe,
                 cancellation_requested=lambda: cancellation["requested"],
             )
@@ -125,6 +130,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["cache-rebuild-cancelled"],
             )
+            self.assertEqual(outcome.diagnostics, tuple(observed_diagnostics))
             self.assertEqual(recognition.calls, [first_face])
             np.testing.assert_array_equal(np.load(first_cache), unit_vector(0))
             self.assertEqual(unprocessed_cache.read_bytes(), unprocessed_bytes)
@@ -143,6 +149,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
             xdg_data_home = temporary_path / "xdg-data"
             fixed_time = datetime(2026, 7, 30, 12, 0, 0, tzinfo=UTC)
             observed: list[ProgressNotification] = []
+            observed_diagnostics: list[Diagnostic] = []
             cancellation = {"requested": False}
 
             def observe(notification: ProgressNotification) -> None:
@@ -156,6 +163,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
                 outcome = trash_vector_cache(
                     TrashRequest(root=root),
                     now=lambda: fixed_time,
+                    on_diagnostic=observed_diagnostics.append,
                     on_progress=observe,
                     cancellation_requested=lambda: cancellation["requested"],
                 )
@@ -176,6 +184,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["trash-cancelled"],
             )
+            self.assertEqual(outcome.diagnostics, tuple(observed_diagnostics))
             self.assertFalse(first_cache.exists())
             self.assertEqual(first_destination.read_bytes(), b"first")
             self.assertEqual(unprocessed_cache.read_bytes(), b"second")
