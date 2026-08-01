@@ -169,6 +169,10 @@ This repository uses a single-context domain-documentation layout. See `docs/age
 
 ## General Notes
 
+### Domain Language alignment
+
+For vocabulary and terms used, see the glossary file: `CONTEXT.md`. Update the list when a new domain term becomes necessary. Resolve conflicts first.
+
 ### Sandbox problems
 
 Consider sandbox issues when a command fails.

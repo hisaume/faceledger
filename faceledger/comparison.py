@@ -752,7 +752,10 @@ def compare(
                 if (distance := _cosine_distance(source_vector, target_vector))
                 <= active_threshold
             ),
-            key=lambda match: match.cosine_distance,
+            key=lambda match: (
+                match.cosine_distance,
+                match.identity_path.as_posix(),
+            ),
         )
     )
     return ComparisonOutcome(

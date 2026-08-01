@@ -4,10 +4,87 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import math
 import sys
 from collections.abc import Sequence
 from importlib.metadata import version
+from pathlib import Path
 from typing import TextIO
+
+from PIL import Image
+
+from faceledger.comparison import (
+    ComparisonOutcome,
+    ComparisonRequest,
+    Diagnostic,
+    RecognitionAdapter,
+    compare,
+)
+from faceledger.presentation import present_comparison
+
+_CLI_MODEL_NAMES = {
+    "facenet512": "Facenet512",
+    "arcface": "ArcFace",
+}
+
+
+def _match_threshold(value: str) -> float:
+    """Parse a finite cosine-distance threshold in the supported range."""
+
+    try:
+        threshold = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a number from 0 through 2") from error
+    if not math.isfinite(threshold) or not 0.0 <= threshold <= 2.0:
+        raise argparse.ArgumentTypeError("must be a finite number from 0 through 2")
+    return threshold
+
+
+def _source_validation_error(source: Path) -> Diagnostic | None:
+    """Return a diagnostic when a direct source is not a supported image file."""
+
+    if not source.is_file():
+        return Diagnostic(
+            severity="error",
+            category="input",
+            code="source-file-invalid",
+            path=source,
+            message="The selected source is not a readable regular file.",
+        )
+    try:
+        with Image.open(source) as image:
+            if image.format not in {"JPEG", "PNG", "WEBP"}:
+                return Diagnostic(
+                    severity="error",
+                    category="input",
+                    code="source-format-unsupported",
+                    path=source,
+                    message=(
+                        "The selected source must contain JPEG, PNG, or one-frame "
+                        "static WebP image data."
+                    ),
+                )
+            if image.format == "WEBP" and (
+                bool(getattr(image, "is_animated", False))
+                or getattr(image, "n_frames", 1) > 1
+            ):
+                return Diagnostic(
+                    severity="error",
+                    category="input",
+                    code="source-webp-animated",
+                    path=source,
+                    message="The selected source must be a one-frame static WebP.",
+                )
+            image.verify()
+    except (OSError, SyntaxError) as error:
+        return Diagnostic(
+            severity="error",
+            category="input",
+            code="source-image-unreadable",
+            path=source,
+            message=f"The selected source image could not be read: {error}",
+        )
+    return None
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -22,7 +99,26 @@ def _build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {version('faceledger')}",
     )
-    parser.add_subparsers(dest="command", metavar="command", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command",
+        metavar="command",
+        required=True,
+    )
+    comparison_parser = subparsers.add_parser(
+        "compare",
+        help="compare one source identity with a target face tree",
+    )
+    comparison_parser.add_argument("source", type=Path)
+    comparison_parser.add_argument("target_root", type=Path)
+    comparison_parser.add_argument(
+        "--model",
+        choices=tuple(_CLI_MODEL_NAMES),
+        default="facenet512",
+    )
+    comparison_parser.add_argument("--threshold", type=_match_threshold)
+    comparison_parser.add_argument("--no-cache", action="store_true")
+    comparison_parser.add_argument("--no-recursive", action="store_true")
+    comparison_parser.add_argument("--no-progress", action="store_true")
     return parser
 
 
@@ -31,6 +127,7 @@ def main(
     *,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    recognition: RecognitionAdapter | None = None,
 ) -> int:
     """Run the shared Faceledger application and return its process status."""
 
@@ -39,7 +136,49 @@ def main(
     parser = _build_parser()
     with contextlib.redirect_stdout(output), contextlib.redirect_stderr(diagnostics):
         try:
-            parser.parse_args(arguments)
+            parsed = parser.parse_args(arguments)
         except SystemExit as exit_status:
             return exit_status.code if isinstance(exit_status.code, int) else 1
-    return 0
+
+        if parsed.command == "compare":
+            try:
+                source = parsed.source.resolve()
+                validation_error = _source_validation_error(source)
+                if validation_error is not None:
+                    return present_comparison(
+                        ComparisonOutcome(
+                            matches=(),
+                            diagnostics=(validation_error,),
+                            successful=False,
+                        ),
+                        output,
+                        diagnostics,
+                    )
+                outcome = compare(
+                    ComparisonRequest(
+                        source=source,
+                        target_root=parsed.target_root.resolve(),
+                        model_name=_CLI_MODEL_NAMES[parsed.model],
+                        threshold=parsed.threshold,
+                        single_target_folder=parsed.no_recursive,
+                        reuse_cache=not parsed.no_cache,
+                    ),
+                    recognition,
+                )
+            except Exception as error:  # noqa: BLE001
+                # This public process boundary translates unexpected failures.
+                outcome = ComparisonOutcome(
+                    matches=(),
+                    diagnostics=(
+                        Diagnostic(
+                            severity="error",
+                            category="application",
+                            code="internal-error",
+                            path=None,
+                            message=str(error),
+                        ),
+                    ),
+                    successful=False,
+                )
+            return present_comparison(outcome, output, diagnostics)
+    raise AssertionError(f"Unsupported parsed command: {parsed.command}")
