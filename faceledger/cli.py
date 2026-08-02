@@ -20,7 +20,7 @@ from faceledger.comparison import (
     RecognitionAdapter,
     compare,
 )
-from faceledger.presentation import present_comparison
+from faceledger.console import ComparisonConsole, ConsolePresentationFailure
 
 _CLI_MODEL_NAMES = {
     "facenet512": "Facenet512",
@@ -141,44 +141,59 @@ def main(
             return exit_status.code if isinstance(exit_status.code, int) else 1
 
         if parsed.command == "compare":
+            console = ComparisonConsole(
+                output,
+                diagnostics,
+                show_progress=not parsed.no_progress and diagnostics.isatty(),
+            )
             try:
-                source = parsed.source.resolve()
-                validation_error = _source_validation_error(source)
-                if validation_error is not None:
-                    return present_comparison(
-                        ComparisonOutcome(
-                            matches=(),
-                            diagnostics=(validation_error,),
-                            successful=False,
-                        ),
-                        output,
-                        diagnostics,
+                try:
+                    source = parsed.source.resolve()
+                    source_is_folder = source.is_dir()
+                    validation_error = (
+                        None if source_is_folder else _source_validation_error(source)
                     )
-                outcome = compare(
-                    ComparisonRequest(
-                        source=source,
-                        target_root=parsed.target_root.resolve(),
-                        model_name=_CLI_MODEL_NAMES[parsed.model],
-                        threshold=parsed.threshold,
-                        single_target_folder=parsed.no_recursive,
-                        reuse_cache=not parsed.no_cache,
-                    ),
-                    recognition,
-                )
-            except Exception as error:  # noqa: BLE001
-                # This public process boundary translates unexpected failures.
-                outcome = ComparisonOutcome(
-                    matches=(),
-                    diagnostics=(
-                        Diagnostic(
-                            severity="error",
-                            category="application",
-                            code="internal-error",
-                            path=None,
-                            message=str(error),
+                    if validation_error is not None:
+                        console.diagnostic(validation_error)
+                        return console.present(
+                            ComparisonOutcome(
+                                matches=(),
+                                diagnostics=(validation_error,),
+                                successful=False,
+                            )
+                        )
+                    outcome = compare(
+                        ComparisonRequest(
+                            source=None if source_is_folder else source,
+                            source_folder=source if source_is_folder else None,
+                            target_root=parsed.target_root.resolve(),
+                            model_name=_CLI_MODEL_NAMES[parsed.model],
+                            threshold=parsed.threshold,
+                            single_target_folder=parsed.no_recursive,
+                            reuse_cache=not parsed.no_cache,
                         ),
-                    ),
-                    successful=False,
-                )
-            return present_comparison(outcome, output, diagnostics)
+                        recognition,
+                        on_diagnostic=console.diagnostic,
+                        on_progress=console.progress,
+                    )
+                except ConsolePresentationFailure:
+                    raise
+                except Exception as error:  # noqa: BLE001
+                    # This public process boundary translates unexpected failures.
+                    diagnostic = Diagnostic(
+                        severity="error",
+                        category="application",
+                        code="internal-error",
+                        path=None,
+                        message=str(error),
+                    )
+                    console.diagnostic(diagnostic)
+                    outcome = ComparisonOutcome(
+                        matches=(),
+                        diagnostics=(diagnostic,),
+                        successful=False,
+                    )
+                return console.present(outcome)
+            except ConsolePresentationFailure as error:
+                return console.report_presentation_failure(error)
     raise AssertionError(f"Unsupported parsed command: {parsed.command}")

@@ -151,6 +151,39 @@ def compare(
   is checked at safe item boundaries and suppresses partial candidate results.
   Callback exceptions propagate.
 
+## console.py
+
+### `ConsolePresentationFailure`
+
+- Signals that a terminal stream could not render or flush operation feedback.
+
+### `ComparisonConsole`
+
+```python
+class ComparisonConsole:
+    def __init__(
+        self,
+        stdout: TextIO,
+        stderr: TextIO,
+        *,
+        show_progress: bool = False,
+    ) -> None: ...
+
+    def diagnostic(self, diagnostic: Diagnostic) -> None: ...
+    def progress(self, notification: ProgressNotification) -> None: ...
+    def present(self, outcome: ComparisonOutcome) -> int: ...
+    def report_presentation_failure(
+        self,
+        error: ConsolePresentationFailure,
+    ) -> int: ...
+```
+
+- Owns live terminal diagnostics, transient completed-item progress, final
+  comparison output, warning summaries, and stream-failure reporting.
+- `present` does not replay retained diagnostics. The caller streams each
+  diagnostic once through `diagnostic` and enables progress only for an
+  interactive standard-error stream when the user has not suppressed it.
+
 ## deepface_adapter.py
 
 ### `DeepFaceRecognition`
@@ -372,7 +405,8 @@ def present_comparison(
 ```
 
 - Writes successful results to standard output and diagnostics and warning
-  summaries to standard error. Returns zero on success and one otherwise.
+  summaries to standard error through `ComparisonConsole`. Returns zero on
+  success and one otherwise.
 
 ## paths.py
 
