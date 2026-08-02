@@ -365,6 +365,14 @@ def render_matches(outcome: ComparisonOutcome) -> str
 - Formats ranked candidates as a table, or reports that no matches were found.
   Unsuccessful outcomes produce no result text.
 
+### `render_diagnostic`
+
+```python
+def render_diagnostic(diagnostic: Diagnostic) -> str
+```
+
+- Formats one structured diagnostic for human-readable terminal or log output.
+
 ### `render_comparison_result`
 
 ```python
@@ -379,8 +387,8 @@ def render_comparison_result(outcome: ComparisonOutcome) -> str
 def render_comparison_log(outcome: ComparisonOutcome) -> str
 ```
 
-- Formats operation metadata, status, counts, and diagnostics without
-  duplicating the candidate table.
+- Formats operation metadata, successful, unsuccessful, or cancelled status,
+  counts, and diagnostics without duplicating candidates or progress.
 
 ### `write_comparison_artifacts`
 
@@ -391,8 +399,11 @@ def write_comparison_artifacts(
 ) -> ComparisonOutcome
 ```
 
-- Writes only requested files and returns an updated outcome when a write
-  failure changes diagnostics or status.
+- Writes only to new or existing regular-file destinations whose parents
+  already exist. A result is limited to successful complete comparisons; a
+  requested log is attempted for every outcome.
+- The returned outcome preserves existing diagnostics and appends an error for
+  each requested write failure, which also makes the outcome unsuccessful.
 
 ### `present_comparison`
 

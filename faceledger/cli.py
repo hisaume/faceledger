@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import math
+import os
 import sys
 from collections.abc import Sequence
 from importlib.metadata import version
@@ -21,6 +22,10 @@ from faceledger.comparison import (
     compare,
 )
 from faceledger.console import ComparisonConsole, ConsolePresentationFailure
+from faceledger.presentation import (
+    ComparisonArtifactRequest,
+    write_comparison_artifacts,
+)
 
 _CLI_MODEL_NAMES = {
     "facenet512": "Facenet512",
@@ -87,6 +92,19 @@ def _source_validation_error(source: Path) -> Diagnostic | None:
     return None
 
 
+def _artifact_destinations_collide(result_path: Path, log_path: Path) -> bool:
+    """Return whether two selected artifact paths identify the same file."""
+
+    if os.path.abspath(result_path) == os.path.abspath(log_path):
+        return True
+    try:
+        if result_path.resolve() == log_path.resolve():
+            return True
+        return result_path.samefile(log_path)
+    except (OSError, RuntimeError):
+        return False
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the discoverable top-level Faceledger parser."""
 
@@ -118,6 +136,8 @@ def _build_parser() -> argparse.ArgumentParser:
     comparison_parser.add_argument("--threshold", type=_match_threshold)
     comparison_parser.add_argument("--no-cache", action="store_true")
     comparison_parser.add_argument("--no-recursive", action="store_true")
+    comparison_parser.add_argument("--result-file", type=Path)
+    comparison_parser.add_argument("--log-file", type=Path)
     comparison_parser.add_argument("--no-progress", action="store_true")
     return parser
 
@@ -137,6 +157,18 @@ def main(
     with contextlib.redirect_stdout(output), contextlib.redirect_stderr(diagnostics):
         try:
             parsed = parser.parse_args(arguments)
+            if (
+                parsed.command == "compare"
+                and parsed.result_file is not None
+                and parsed.log_file is not None
+                and _artifact_destinations_collide(
+                    parsed.result_file,
+                    parsed.log_file,
+                )
+            ):
+                parser.error(
+                    "--result-file and --log-file must identify different files"
+                )
         except SystemExit as exit_status:
             return exit_status.code if isinstance(exit_status.code, int) else 1
 
@@ -155,27 +187,26 @@ def main(
                     )
                     if validation_error is not None:
                         console.diagnostic(validation_error)
-                        return console.present(
-                            ComparisonOutcome(
-                                matches=(),
-                                diagnostics=(validation_error,),
-                                successful=False,
-                            )
+                        outcome = ComparisonOutcome(
+                            matches=(),
+                            diagnostics=(validation_error,),
+                            successful=False,
                         )
-                    outcome = compare(
-                        ComparisonRequest(
-                            source=None if source_is_folder else source,
-                            source_folder=source if source_is_folder else None,
-                            target_root=parsed.target_root.resolve(),
-                            model_name=_CLI_MODEL_NAMES[parsed.model],
-                            threshold=parsed.threshold,
-                            single_target_folder=parsed.no_recursive,
-                            reuse_cache=not parsed.no_cache,
-                        ),
-                        recognition,
-                        on_diagnostic=console.diagnostic,
-                        on_progress=console.progress,
-                    )
+                    else:
+                        outcome = compare(
+                            ComparisonRequest(
+                                source=None if source_is_folder else source,
+                                source_folder=source if source_is_folder else None,
+                                target_root=parsed.target_root.resolve(),
+                                model_name=_CLI_MODEL_NAMES[parsed.model],
+                                threshold=parsed.threshold,
+                                single_target_folder=parsed.no_recursive,
+                                reuse_cache=not parsed.no_cache,
+                            ),
+                            recognition,
+                            on_diagnostic=console.diagnostic,
+                            on_progress=console.progress,
+                        )
                 except ConsolePresentationFailure:
                     raise
                 except Exception as error:  # noqa: BLE001
@@ -193,7 +224,21 @@ def main(
                         diagnostics=(diagnostic,),
                         successful=False,
                     )
-                return console.present(outcome)
+                status = console.present(outcome)
+                outcome_with_artifacts = write_comparison_artifacts(
+                    outcome,
+                    ComparisonArtifactRequest(
+                        result_path=parsed.result_file,
+                        log_path=parsed.log_file,
+                    ),
+                )
+                for diagnostic in outcome_with_artifacts.diagnostics[
+                    len(outcome.diagnostics) :
+                ]:
+                    console.diagnostic(diagnostic)
+                if not outcome_with_artifacts.successful:
+                    return 1
+                return status
             except ConsolePresentationFailure as error:
                 return console.report_presentation_failure(error)
     raise AssertionError(f"Unsupported parsed command: {parsed.command}")

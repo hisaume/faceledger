@@ -15,6 +15,18 @@ class ComparisonArtifactRequest:
     log_path: Path | None = None
 
 
+def _write_artifact(path: Path, text: str) -> None:
+    """Overwrite one regular UTF-8 artifact without creating its parent."""
+
+    if not path.parent.is_dir():
+        raise FileNotFoundError(
+            f"Artifact parent directory does not exist: {path.parent}"
+        )
+    if (path.exists() or path.is_symlink()) and not path.is_file():
+        raise OSError(f"Artifact destination is not a regular file: {path}")
+    path.write_text(text, encoding="utf-8")
+
+
 def render_matches(outcome: ComparisonOutcome) -> str:
     """Render candidate matches for standard output."""
 
@@ -53,7 +65,9 @@ def render_comparison_result(outcome: ComparisonOutcome) -> str:
     )
 
 
-def _render_diagnostic(diagnostic: Diagnostic) -> str:
+def render_diagnostic(diagnostic: Diagnostic) -> str:
+    """Format one structured diagnostic for human-readable output."""
+
     location = f" {diagnostic.path}" if diagnostic.path is not None else ""
     return (
         f"{diagnostic.severity.upper()} "
@@ -66,6 +80,13 @@ def render_comparison_log(outcome: ComparisonOutcome) -> str:
     """Render one UTF-8 troubleshooting record without ranked results."""
 
     metadata = outcome.metadata
+    status = (
+        "cancelled"
+        if not outcome.complete
+        else "successful"
+        if outcome.successful
+        else "unsuccessful"
+    )
     metadata_text = (
         f"Source: {metadata.source}\n"
         f"Target root: {metadata.target_root}\n"
@@ -74,10 +95,10 @@ def render_comparison_log(outcome: ComparisonOutcome) -> str:
         if metadata is not None
         else "Operation metadata: unavailable\n"
     )
-    diagnostics = "".join(_render_diagnostic(item) for item in outcome.diagnostics)
+    diagnostics = "".join(render_diagnostic(item) for item in outcome.diagnostics)
     return (
         metadata_text
-        + f"Status: {'successful' if outcome.successful else 'unsuccessful'}\n"
+        + f"Status: {status}\n"
         + f"Target identities compared: {outcome.target_identities_compared}\n"
         + f"Candidate matches: {len(outcome.matches)}\n"
         + f"Diagnostics: {len(outcome.diagnostics)}\n"
@@ -89,17 +110,17 @@ def write_comparison_artifacts(
     outcome: ComparisonOutcome,
     request: ComparisonArtifactRequest,
 ) -> ComparisonOutcome:
-    """Write only selected artifacts and return their operation semantics."""
+    """Write selected artifacts and append any failure diagnostics."""
 
     if request.result_path is None and request.log_path is None:
         return outcome
 
     current = outcome
-    if request.result_path is not None and outcome.successful:
+    if request.result_path is not None and outcome.successful and outcome.complete:
         try:
-            request.result_path.write_text(
+            _write_artifact(
+                request.result_path,
                 render_comparison_result(outcome),
-                encoding="utf-8",
             )
         except OSError as error:
             current = replace(
@@ -119,9 +140,9 @@ def write_comparison_artifacts(
 
     if request.log_path is not None:
         try:
-            request.log_path.write_text(
+            _write_artifact(
+                request.log_path,
                 render_comparison_log(current),
-                encoding="utf-8",
             )
         except OSError as error:
             current = replace(
@@ -129,13 +150,14 @@ def write_comparison_artifacts(
                 diagnostics=current.diagnostics
                 + (
                     Diagnostic(
-                        severity="warning",
+                        severity="error",
                         category="output",
                         code="log-artifact-write-failed",
                         path=request.log_path,
                         message=str(error),
                     ),
                 ),
+                successful=False,
             )
     return current
 
