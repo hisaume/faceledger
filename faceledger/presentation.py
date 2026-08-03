@@ -145,31 +145,11 @@ def present_comparison(
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
-    """Write one comparison outcome to separated CLI streams."""
+    """Present a retained outcome through the terminal console component."""
 
-    stderr.writelines(
-        _render_diagnostic(diagnostic) for diagnostic in outcome.diagnostics
-    )
+    from faceledger.console import ComparisonConsole
 
-    if not outcome.successful:
-        return 1
-
-    stdout.write(render_comparison_result(outcome))
-
-    warning_count = sum(
-        diagnostic.severity == "warning" for diagnostic in outcome.diagnostics
-    )
-    if warning_count:
-        warning_label = "warning" if warning_count == 1 else "warnings"
-        compared_count = outcome.target_identities_compared
-        compared_label = (
-            "target identity" if compared_count == 1 else "target identities"
-        )
-        match_count = len(outcome.matches)
-        match_label = "candidate match" if match_count == 1 else "candidate matches"
-        stderr.write(
-            f"WARNING SUMMARY: {warning_count} {warning_label}; "
-            f"{compared_count} {compared_label} compared; "
-            f"{match_count} {match_label}.\n"
-        )
-    return 0
+    console = ComparisonConsole(stdout, stderr)
+    for diagnostic in outcome.diagnostics:
+        console.diagnostic(diagnostic)
+    return console.present(outcome)
