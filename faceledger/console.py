@@ -3,7 +3,7 @@
 from typing import TextIO
 
 from faceledger.comparison import ComparisonOutcome, Diagnostic, ProgressNotification
-from faceledger.presentation import render_comparison_result
+from faceledger.presentation import render_comparison_result, render_diagnostic
 
 
 class ConsolePresentationFailure(RuntimeError):
@@ -46,13 +46,7 @@ class ComparisonConsole:
         """Render one diagnostic notification as it arises."""
 
         self._clear_progress()
-        location = f" {diagnostic.path}" if diagnostic.path is not None else ""
-        self._write(
-            self._stderr,
-            f"{diagnostic.severity.upper()} "
-            f"[{diagnostic.category}:{diagnostic.code}]"
-            f"{location}: {diagnostic.message}\n",
-        )
+        self._write(self._stderr, render_diagnostic(diagnostic))
 
     def progress(self, notification: ProgressNotification) -> None:
         """Replace the transient completed-count and current-path line."""
