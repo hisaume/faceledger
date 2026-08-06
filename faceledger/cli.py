@@ -37,6 +37,7 @@ from faceledger.presentation import (
     ComparisonArtifactRequest,
     write_comparison_artifacts,
 )
+from faceledger.trash import TrashOutcome, TrashRequest, trash_vector_cache
 
 _CLI_MODEL_NAMES = {
     "facenet512": "Facenet512",
@@ -159,7 +160,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="operation",
         required=True,
     )
-    for operation in ("build", "rebuild"):
+    for operation in ("build", "rebuild", "trash"):
         maintenance_parser = cache_subparsers.add_parser(
             operation,
             help=f"{operation} selected-model vector caches",
@@ -280,6 +281,42 @@ def main(
                 diagnostics,
                 show_progress=not parsed.no_progress and diagnostics.isatty(),
             )
+            if parsed.cache_command == "trash":
+                trash_request = TrashRequest(
+                    root=parsed.maintenance_root.resolve(),
+                    model_name=_CLI_MODEL_NAMES[parsed.model],
+                    recursive=parsed.recursive,
+                )
+                try:
+                    try:
+                        trash_outcome = trash_vector_cache(
+                            trash_request,
+                            on_diagnostic=maintenance_console.diagnostic,
+                            on_progress=maintenance_console.progress,
+                        )
+                    except ConsolePresentationFailure:
+                        raise
+                    except Exception as error:  # noqa: BLE001
+                        diagnostic = Diagnostic(
+                            severity="error",
+                            category="application",
+                            code="internal-error",
+                            path=None,
+                            message=str(error),
+                        )
+                        maintenance_console.diagnostic(diagnostic)
+                        trash_outcome = TrashOutcome(
+                            action_directory=None,
+                            manifest_path=None,
+                            diagnostics=(diagnostic,),
+                            successful=False,
+                        )
+                    return maintenance_console.present_trash(
+                        trash_outcome,
+                        trash_request,
+                    )
+                except ConsolePresentationFailure as error:
+                    return maintenance_console.report_presentation_failure(error)
             request = CacheBuildRequest(
                 root=parsed.maintenance_root.resolve(),
                 model_name=_CLI_MODEL_NAMES[parsed.model],
