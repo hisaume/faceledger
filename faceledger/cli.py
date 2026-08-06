@@ -6,10 +6,12 @@ import argparse
 import contextlib
 import math
 import os
+import signal
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from importlib.metadata import version
 from pathlib import Path
+from types import FrameType
 from typing import TextIO
 
 from PIL import Image
@@ -43,6 +45,26 @@ _CLI_MODEL_NAMES = {
     "facenet512": "Facenet512",
     "arcface": "ArcFace",
 }
+
+
+@contextlib.contextmanager
+def _operation_cancellation() -> Iterator[Callable[[], bool]]:
+    """Turn SIGINT into a flag checked by one running CORE operation."""
+
+    requested = False
+
+    def request_cancellation(
+        _signal_number: int,
+        _frame: FrameType | None,
+    ) -> None:
+        nonlocal requested
+        requested = True
+
+    previous_handler = signal.signal(signal.SIGINT, request_cancellation)
+    try:
+        yield lambda: requested
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 def _match_threshold(value: str) -> float:
@@ -227,20 +249,22 @@ def main(
                             successful=False,
                         )
                     else:
-                        outcome = compare(
-                            ComparisonRequest(
-                                source=None if source_is_folder else source,
-                                source_folder=source if source_is_folder else None,
-                                target_root=parsed.target_root.resolve(),
-                                model_name=_CLI_MODEL_NAMES[parsed.model],
-                                threshold=parsed.threshold,
-                                single_target_folder=parsed.no_recursive,
-                                reuse_cache=not parsed.no_cache,
-                            ),
-                            recognition,
-                            on_diagnostic=console.diagnostic,
-                            on_progress=console.progress,
-                        )
+                        with _operation_cancellation() as cancellation_requested:
+                            outcome = compare(
+                                ComparisonRequest(
+                                    source=None if source_is_folder else source,
+                                    source_folder=source if source_is_folder else None,
+                                    target_root=parsed.target_root.resolve(),
+                                    model_name=_CLI_MODEL_NAMES[parsed.model],
+                                    threshold=parsed.threshold,
+                                    single_target_folder=parsed.no_recursive,
+                                    reuse_cache=not parsed.no_cache,
+                                ),
+                                recognition,
+                                on_diagnostic=console.diagnostic,
+                                on_progress=console.progress,
+                                cancellation_requested=cancellation_requested,
+                            )
                 except ConsolePresentationFailure:
                     raise
                 except Exception as error:  # noqa: BLE001
@@ -270,6 +294,10 @@ def main(
                     len(outcome.diagnostics) :
                 ]:
                     console.diagnostic(diagnostic)
+                if len(outcome_with_artifacts.diagnostics) > len(outcome.diagnostics):
+                    return 1
+                if not outcome.complete:
+                    return 130
                 if not outcome_with_artifacts.successful:
                     return 1
                 return status
@@ -289,11 +317,13 @@ def main(
                 )
                 try:
                     try:
-                        trash_outcome = trash_vector_cache(
-                            trash_request,
-                            on_diagnostic=maintenance_console.diagnostic,
-                            on_progress=maintenance_console.progress,
-                        )
+                        with _operation_cancellation() as cancellation_requested:
+                            trash_outcome = trash_vector_cache(
+                                trash_request,
+                                on_diagnostic=maintenance_console.diagnostic,
+                                on_progress=maintenance_console.progress,
+                                cancellation_requested=cancellation_requested,
+                            )
                     except ConsolePresentationFailure:
                         raise
                     except Exception as error:  # noqa: BLE001
@@ -311,10 +341,11 @@ def main(
                             diagnostics=(diagnostic,),
                             successful=False,
                         )
-                    return maintenance_console.present_trash(
+                    status = maintenance_console.present_trash(
                         trash_outcome,
                         trash_request,
                     )
+                    return 130 if not trash_outcome.complete else status
                 except ConsolePresentationFailure as error:
                     return maintenance_console.report_presentation_failure(error)
             request = CacheBuildRequest(
@@ -324,24 +355,27 @@ def main(
             )
             try:
                 try:
-                    if parsed.cache_command == "build":
-                        build_outcome = build_vector_cache(
-                            request,
-                            recognition,
-                            on_diagnostic=maintenance_console.diagnostic,
-                            on_progress=maintenance_console.progress,
-                        )
-                    elif parsed.cache_command == "rebuild":
-                        rebuild_outcome = rebuild_vector_cache(
-                            request,
-                            recognition,
-                            on_diagnostic=maintenance_console.diagnostic,
-                            on_progress=maintenance_console.progress,
-                        )
-                    else:
-                        raise AssertionError(
-                            f"Unsupported cache operation: {parsed.cache_command}"
-                        )
+                    with _operation_cancellation() as cancellation_requested:
+                        if parsed.cache_command == "build":
+                            build_outcome = build_vector_cache(
+                                request,
+                                recognition,
+                                on_diagnostic=maintenance_console.diagnostic,
+                                on_progress=maintenance_console.progress,
+                                cancellation_requested=cancellation_requested,
+                            )
+                        elif parsed.cache_command == "rebuild":
+                            rebuild_outcome = rebuild_vector_cache(
+                                request,
+                                recognition,
+                                on_diagnostic=maintenance_console.diagnostic,
+                                on_progress=maintenance_console.progress,
+                                cancellation_requested=cancellation_requested,
+                            )
+                        else:
+                            raise AssertionError(
+                                f"Unsupported cache operation: {parsed.cache_command}"
+                            )
                 except ConsolePresentationFailure:
                     raise
                 except Exception as error:  # noqa: BLE001
@@ -366,8 +400,10 @@ def main(
                             successful=False,
                         )
                 if parsed.cache_command == "build":
-                    return maintenance_console.present_build(build_outcome, request)
-                return maintenance_console.present_rebuild(rebuild_outcome, request)
+                    status = maintenance_console.present_build(build_outcome, request)
+                    return 130 if not build_outcome.complete else status
+                status = maintenance_console.present_rebuild(rebuild_outcome, request)
+                return 130 if not rebuild_outcome.complete else status
             except ConsolePresentationFailure as error:
                 return maintenance_console.report_presentation_failure(error)
     raise AssertionError(f"Unsupported parsed command: {parsed.command}")

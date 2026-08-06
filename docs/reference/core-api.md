@@ -529,3 +529,10 @@ def main(
   `cache rebuild`, and recoverable `cache trash` commands. CLI model spelling
   is lowercase; maintenance roots are resolved before requests are passed to
   the core operations.
+- Installs a temporary SIGINT handler only while a core operation runs. Repeated
+  signals set one cancellation flag, the previous handler is restored on every
+  exit path, and core operations observe the flag only at safe boundaries.
+- Returns status 130 for cancelled outcomes after presenting their diagnostics,
+  maintenance counts, recovery locations, or requested comparison log. A
+  callback, console, or artifact failure remains status 1 instead of being
+  hidden by cancellation.
