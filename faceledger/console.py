@@ -9,6 +9,7 @@ from faceledger.maintenance import (
     CacheRebuildOutcome,
 )
 from faceledger.presentation import render_comparison_result, render_diagnostic
+from faceledger.trash import TrashOutcome, TrashRequest
 
 
 class ConsolePresentationFailure(RuntimeError):
@@ -133,7 +134,7 @@ class MaintenanceConsole(_LiveConsole):
         self,
         *,
         operation: str,
-        request: CacheBuildRequest,
+        request: CacheBuildRequest | TrashRequest,
         successful: bool,
         complete: bool,
         counts: tuple[tuple[str, int], ...],
@@ -194,3 +195,26 @@ class MaintenanceConsole(_LiveConsole):
             counts=(("Rebuilt", len(outcome.rebuilt)),),
             diagnostics=outcome.diagnostics,
         )
+
+    def present_trash(
+        self,
+        outcome: TrashOutcome,
+        request: TrashRequest,
+    ) -> int:
+        """Render a recoverable cache-trash outcome and moved count."""
+
+        status = self._present_summary(
+            operation="trash",
+            request=request,
+            successful=outcome.successful,
+            complete=outcome.complete,
+            counts=(("Moved", len(outcome.moved)),),
+            diagnostics=outcome.diagnostics,
+        )
+        if outcome.action_directory is not None and outcome.manifest_path is not None:
+            self._write(
+                self._stderr,
+                f"Recovery directory: {outcome.action_directory}\n"
+                f"Recovery manifest: {outcome.manifest_path}\n",
+            )
+        return status

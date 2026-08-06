@@ -208,6 +208,11 @@ class MaintenanceConsole:
         outcome: CacheRebuildOutcome,
         request: CacheBuildRequest,
     ) -> int: ...
+    def present_trash(
+        self,
+        outcome: TrashOutcome,
+        request: TrashRequest,
+    ) -> int: ...
     def report_presentation_failure(
         self,
         error: ConsolePresentationFailure,
@@ -216,9 +221,12 @@ class MaintenanceConsole:
 
 - Shares live diagnostic, transient progress, and stream-failure behavior with
   comparison presentation. Final summaries report resolved maintenance inputs
-  and safely completed build or rebuild counts without replaying diagnostics.
+  and safely completed build, rebuild, or trash counts without replaying
+  diagnostics.
 - Complete successful outcomes return zero even with warnings. Incomplete or
   cancelled outcomes still produce a summary and return one.
+- Trash actions report their recovery directory and manifest paths on standard
+  error. Successful no-ops create and report neither path.
 
 ## deepface_adapter.py
 
@@ -517,6 +525,7 @@ def main(
 - Shared application entry point used by the installed `faceledger` launcher
   and `python -m faceledger`. Optional streams and recognition adapter support
   embedding and deterministic tests without changing command syntax.
-- Dispatches comparison and nested selected-model `cache build` and
-  `cache rebuild` commands. CLI model spelling is lowercase; maintenance roots
-  are resolved before requests are passed to the core operations.
+- Dispatches comparison and nested selected-model `cache build`,
+  `cache rebuild`, and recoverable `cache trash` commands. CLI model spelling
+  is lowercase; maintenance roots are resolved before requests are passed to
+  the core operations.

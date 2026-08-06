@@ -1,7 +1,10 @@
 import io
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -85,7 +88,7 @@ class LiveDiagnosticRecognition(DeterministicRecognition):
 
 class CacheMaintenanceGrammarTests(unittest.TestCase):
     def test_nested_help_describes_the_maintenance_contract(self) -> None:
-        for operation in ("build", "rebuild"):
+        for operation in ("build", "rebuild", "trash"):
             with self.subTest(operation=operation):
                 stdout = io.StringIO()
                 stderr = io.StringIO()
@@ -131,6 +134,320 @@ class CacheMaintenanceGrammarTests(unittest.TestCase):
             self.assertEqual(status, 2)
             self.assertEqual(stdout.getvalue(), "")
             self.assertIn("invalid choice: 'Facenet512'", stderr.getvalue())
+
+
+class CacheTrashCliTests(unittest.TestCase):
+    def test_empty_selected_model_scope_is_a_successful_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            other_model = root / "Person.face0.jpg.arcface.npy"
+            other_model.write_bytes(b"ArcFace cache")
+            wrong_case = root / "Person.face0.jpg.FACENET512.npy"
+            wrong_case.write_bytes(b"wrong case")
+            unrelated = root / "notes.npy"
+            unrelated.write_bytes(b"unrelated NPY")
+            xdg_data_home = temporary_path / "xdg-data"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data_home)}):
+                status = main(
+                    ["cache", "trash", str(root)],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            self.assertEqual(status, 0)
+            self.assertEqual(
+                stdout.getvalue(),
+                "Operation: cache trash\n"
+                "Status: successful\n"
+                f"Root: {root}\n"
+                "Model: Facenet512\n"
+                "Scope: selected root\n"
+                "Moved: 0\n",
+            )
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertFalse(xdg_data_home.exists())
+            self.assertEqual(other_model.read_bytes(), b"ArcFace cache")
+            self.assertEqual(wrong_case.read_bytes(), b"wrong case")
+            self.assertEqual(unrelated.read_bytes(), b"unrelated NPY")
+
+    def test_moves_exact_root_match_and_reports_recovery_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            cache = root / "Person.face0.jpg.facenet512.npy"
+            cache.write_bytes(b"Facenet512 cache")
+            other_model = root / "Person.face0.jpg.arcface.npy"
+            other_model.write_bytes(b"ArcFace cache")
+            descendant = root / "Descendant"
+            descendant.mkdir()
+            descendant_cache = descendant / "Nested.face1.jpg.facenet512.npy"
+            descendant_cache.write_bytes(b"nested cache")
+            xdg_data_home = temporary_path / "xdg-data"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data_home)}):
+                status = main(
+                    ["cache", "trash", str(root)],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            trash_root = xdg_data_home / "faceledger" / "trash"
+            actions = tuple(trash_root.iterdir())
+            self.assertEqual(len(actions), 1)
+            action = actions[0]
+            manifest = action / "manifest.txt"
+            destination = action / "files" / cache.name
+            self.assertEqual(status, 0)
+            self.assertFalse(cache.exists())
+            self.assertEqual(destination.read_bytes(), b"Facenet512 cache")
+            self.assertEqual(other_model.read_bytes(), b"ArcFace cache")
+            self.assertEqual(descendant_cache.read_bytes(), b"nested cache")
+            self.assertEqual(
+                stdout.getvalue(),
+                "Operation: cache trash\n"
+                "Status: successful\n"
+                f"Root: {root}\n"
+                "Model: Facenet512\n"
+                "Scope: selected root\n"
+                "Moved: 1\n",
+            )
+            self.assertEqual(
+                stderr.getvalue(),
+                f"Recovery directory: {action}\nRecovery manifest: {manifest}\n",
+            )
+            self.assertEqual(
+                json.loads(manifest.read_text(encoding="utf-8")),
+                [
+                    {
+                        "status": "moved",
+                        "original": str(cache),
+                        "trash_relative": f"files/{cache.name}",
+                        "reason": None,
+                    }
+                ],
+            )
+
+    def test_recursive_arcface_scope_preserves_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            root_cache = root / "Root.face0.jpg.arcface.npy"
+            root_cache.write_bytes(b"root ArcFace")
+            descendant = root / "Album"
+            descendant.mkdir()
+            nested_cache = descendant / "Person.face1.jpg.arcface.npy"
+            nested_cache.write_bytes(b"nested ArcFace")
+            other_model = descendant / "Person.face1.jpg.facenet512.npy"
+            other_model.write_bytes(b"Facenet512 remains")
+            xdg_data_home = temporary_path / "xdg-data"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data_home)}):
+                status = main(
+                    [
+                        "cache",
+                        "trash",
+                        str(root),
+                        "--model",
+                        "arcface",
+                        "--recursive",
+                    ],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            trash_root = xdg_data_home / "faceledger" / "trash"
+            (action,) = tuple(trash_root.iterdir())
+            self.assertEqual(status, 0)
+            self.assertEqual(
+                (action / "files" / root_cache.name).read_bytes(),
+                b"root ArcFace",
+            )
+            self.assertEqual(
+                (action / "files" / "Album" / nested_cache.name).read_bytes(),
+                b"nested ArcFace",
+            )
+            self.assertEqual(other_model.read_bytes(), b"Facenet512 remains")
+            summary = stdout.getvalue()
+            self.assertEqual(summary.count("Model: ArcFace\n"), 1)
+            self.assertEqual(summary.count("Scope: recursive\n"), 1)
+            self.assertIn("Moved: 2\n", summary)
+            self.assertIn(f"Recovery directory: {action}\n", stderr.getvalue())
+
+    def test_warning_is_live_once_without_changing_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            cache = root / "Person.face0.jpg.facenet512.npy"
+            cache.write_bytes(b"cache")
+            outside = temporary_path / "outside.npy"
+            outside.write_bytes(b"outside")
+            skipped = root / "Symlink.face1.jpg.facenet512.npy"
+            skipped.symlink_to(outside)
+            xdg_data_home = temporary_path / "xdg-data"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data_home)}):
+                status = main(
+                    ["cache", "trash", str(root)],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            self.assertEqual(status, 0)
+            self.assertTrue(skipped.is_symlink())
+            self.assertEqual(outside.read_bytes(), b"outside")
+            self.assertIn("Status: successful\n", stdout.getvalue())
+            self.assertIn("Moved: 1\n", stdout.getvalue())
+            transcript = stderr.getvalue()
+            self.assertEqual(transcript.count("maintenance-symlink-skipped"), 1)
+            self.assertEqual(transcript.count("WARNING SUMMARY: 1 warning."), 1)
+            self.assertLess(
+                transcript.index("maintenance-symlink-skipped"),
+                transcript.index("WARNING SUMMARY"),
+            )
+
+    def test_invalid_root_reports_an_incomplete_summary_and_operation_error(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "Missing Face Tree"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            status = main(
+                ["cache", "trash", str(root)],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(status, 1)
+            self.assertEqual(
+                stdout.getvalue(),
+                "Operation: cache trash\n"
+                "Status: incomplete\n"
+                f"Root: {root}\n"
+                "Model: Facenet512\n"
+                "Scope: selected root\n"
+                "Moved: 0\n",
+            )
+            self.assertEqual(stderr.getvalue().count("maintenance-root-invalid"), 1)
+            self.assertNotIn("Recovery directory:", stderr.getvalue())
+
+    def test_interactive_progress_clears_before_recovery_locations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            cache = root / "Person.face0.jpg.facenet512.npy"
+            cache.write_bytes(b"cache")
+            xdg_data_home = temporary_path / "xdg-data"
+            stdout = io.StringIO()
+            stderr = TtyStringIO()
+
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data_home)}):
+                status = main(
+                    ["cache", "trash", str(root)],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            self.assertEqual(status, 0)
+            transcript = stderr.getvalue()
+            progress = f"Completed 1: {cache}"
+            recovery_start = transcript.index("Recovery directory:")
+            self.assertIn(f"\r{progress}", transcript)
+            self.assertEqual(
+                transcript[recovery_start - len(progress) - 2 : recovery_start],
+                f"\r{' ' * len(progress)}\r",
+            )
+
+    def test_no_progress_keeps_recovery_locations_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            (root / "Person.face0.jpg.facenet512.npy").write_bytes(b"cache")
+            xdg_data_home = temporary_path / "xdg-data"
+            stdout = io.StringIO()
+            stderr = TtyStringIO()
+
+            with patch.dict(os.environ, {"XDG_DATA_HOME": str(xdg_data_home)}):
+                status = main(
+                    ["cache", "trash", str(root), "--no-progress"],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            self.assertEqual(status, 0)
+            self.assertNotIn("Completed ", stderr.getvalue())
+            self.assertIn("Recovery directory:", stderr.getvalue())
+            self.assertIn("Recovery manifest:", stderr.getvalue())
+
+    def test_diagnostic_callback_failure_is_a_presentation_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            outside = temporary_path / "outside.npy"
+            outside.write_bytes(b"outside")
+            (root / "Symlink.face0.jpg.facenet512.npy").symlink_to(outside)
+            stdout = io.StringIO()
+            stderr = FailOnceStringIO()
+
+            status = main(
+                ["cache", "trash", str(root)],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(status, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("presentation-failure", stderr.getvalue())
+            self.assertIn("simulated console failure", stderr.getvalue())
+            self.assertNotIn("internal-error", stderr.getvalue())
+
+    def test_unexpected_trash_setup_failure_is_concise(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory)
+            root = temporary_path / "Face Tree"
+            root.mkdir()
+            cache = root / "Person.face0.jpg.facenet512.npy"
+            cache.write_bytes(b"cache")
+            blocked_xdg_home = temporary_path / "not-a-directory"
+            blocked_xdg_home.write_bytes(b"file")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with patch.dict(
+                os.environ,
+                {"XDG_DATA_HOME": str(blocked_xdg_home)},
+            ):
+                status = main(
+                    ["cache", "trash", str(root)],
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+            self.assertEqual(status, 1)
+            self.assertTrue(cache.exists())
+            self.assertIn("Status: incomplete\n", stdout.getvalue())
+            self.assertIn("Moved: 0\n", stdout.getvalue())
+            self.assertEqual(stderr.getvalue().count("internal-error"), 1)
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertNotIn("Recovery directory:", stderr.getvalue())
 
 
 class CacheBuildCliTests(unittest.TestCase):
