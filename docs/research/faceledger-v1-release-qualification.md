@@ -142,11 +142,19 @@ asset-lifecycle errors. The qualification images add only the native GLib and
 OpenGL libraries needed by OpenCV; model assets remain outside the images and
 repository.
 
-V1 is delivered as a source checkout plus the committed uv lock; it is not a
-wheel or native distribution package because `pyproject.toml` intentionally
-declares `package = false`. The ABI and contents claim therefore applies to
-that locked source delivery and must be requalified if a bundled artifact is
-introduced.
+Faceledger 0.5.0 now builds as a source archive and pure-Python wheel. The
+repository distribution check installs that wheel into a fresh CPython 3.12.13
+environment against dependencies exported from `uv.lock`, confirms the import
+comes from the installed package, and exercises the complete public grammar
+through both the launcher and module route. Neither artifact contains model
+weights.
+
+Local `uv tool install --python 3.12.13 .` and bare `uv tool install .` were
+also qualified; both selected Python 3.12.13 on the qualification host. The
+bare form may select another compatible 3.12 patch, and tool installation does
+not consume the lock. The source checkout plus committed lock therefore remains
+the reproducibility authority. Registry publication and native distribution
+packages remain outside the v1 scope.
 
 The reviewed primary sources still do not establish redistribution or
 commercial permission for the exact three H5 files. Only written

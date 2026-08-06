@@ -52,3 +52,23 @@ The checked-in matrix summary and reports are under
 [`docs/research/evidence/faceledger-v1/`](../docs/research/evidence/faceledger-v1/).
 The reports contain dependency inventory details and hashes, but no model
 weights.
+
+## Distribution qualification
+
+The authoritative repository check also runs
+`scripts/check_distribution.py`. It builds the source archive and wheel,
+exports runtime dependencies from `uv.lock`, installs the wheel into a fresh
+CPython 3.12.13 environment, and exercises the complete help grammar through
+both the installed launcher and module route from outside the checkout.
+
+The persistent local-tool routes were qualified separately with:
+
+```console
+uv tool install --python 3.12.13 .
+uv tool install .
+```
+
+Both installed Faceledger 0.5.0 and selected Python 3.12.13 on the qualification
+host. The bare form may select another compatible Python 3.12 elsewhere, and a
+tool environment does not consume the project lock; the checkout plus
+`uv.lock` remains the reproducibility authority.

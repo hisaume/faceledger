@@ -20,4 +20,7 @@ uv run --locked mypy faceledger tests scripts
 printf '\n==> Unit tests\n'
 uv run --locked python -m unittest discover -s tests
 
+printf '\n==> Distribution qualification\n'
+uv run --locked python scripts/check_distribution.py
+
 printf '\nAll validation checks passed.\n'
