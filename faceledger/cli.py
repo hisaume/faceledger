@@ -21,7 +21,18 @@ from faceledger.comparison import (
     RecognitionAdapter,
     compare,
 )
-from faceledger.console import ComparisonConsole, ConsolePresentationFailure
+from faceledger.console import (
+    ComparisonConsole,
+    ConsolePresentationFailure,
+    MaintenanceConsole,
+)
+from faceledger.maintenance import (
+    CacheBuildOutcome,
+    CacheBuildRequest,
+    CacheRebuildOutcome,
+    build_vector_cache,
+    rebuild_vector_cache,
+)
 from faceledger.presentation import (
     ComparisonArtifactRequest,
     write_comparison_artifacts,
@@ -139,6 +150,28 @@ def _build_parser() -> argparse.ArgumentParser:
     comparison_parser.add_argument("--result-file", type=Path)
     comparison_parser.add_argument("--log-file", type=Path)
     comparison_parser.add_argument("--no-progress", action="store_true")
+    cache_parser = subparsers.add_parser(
+        "cache",
+        help="maintain selected-model vector caches",
+    )
+    cache_subparsers = cache_parser.add_subparsers(
+        dest="cache_command",
+        metavar="operation",
+        required=True,
+    )
+    for operation in ("build", "rebuild"):
+        maintenance_parser = cache_subparsers.add_parser(
+            operation,
+            help=f"{operation} selected-model vector caches",
+        )
+        maintenance_parser.add_argument("maintenance_root", type=Path)
+        maintenance_parser.add_argument(
+            "--model",
+            choices=tuple(_CLI_MODEL_NAMES),
+            default="facenet512",
+        )
+        maintenance_parser.add_argument("--recursive", action="store_true")
+        maintenance_parser.add_argument("--no-progress", action="store_true")
     return parser
 
 
@@ -241,4 +274,63 @@ def main(
                 return status
             except ConsolePresentationFailure as error:
                 return console.report_presentation_failure(error)
+        if parsed.command == "cache":
+            maintenance_console = MaintenanceConsole(
+                output,
+                diagnostics,
+                show_progress=not parsed.no_progress and diagnostics.isatty(),
+            )
+            request = CacheBuildRequest(
+                root=parsed.maintenance_root.resolve(),
+                model_name=_CLI_MODEL_NAMES[parsed.model],
+                recursive=parsed.recursive,
+            )
+            try:
+                try:
+                    if parsed.cache_command == "build":
+                        build_outcome = build_vector_cache(
+                            request,
+                            recognition,
+                            on_diagnostic=maintenance_console.diagnostic,
+                            on_progress=maintenance_console.progress,
+                        )
+                    elif parsed.cache_command == "rebuild":
+                        rebuild_outcome = rebuild_vector_cache(
+                            request,
+                            recognition,
+                            on_diagnostic=maintenance_console.diagnostic,
+                            on_progress=maintenance_console.progress,
+                        )
+                    else:
+                        raise AssertionError(
+                            f"Unsupported cache operation: {parsed.cache_command}"
+                        )
+                except ConsolePresentationFailure:
+                    raise
+                except Exception as error:  # noqa: BLE001
+                    diagnostic = Diagnostic(
+                        severity="error",
+                        category="application",
+                        code="internal-error",
+                        path=None,
+                        message=str(error),
+                    )
+                    maintenance_console.diagnostic(diagnostic)
+                    if parsed.cache_command == "build":
+                        build_outcome = CacheBuildOutcome(
+                            created=(),
+                            diagnostics=(diagnostic,),
+                            successful=False,
+                        )
+                    else:
+                        rebuild_outcome = CacheRebuildOutcome(
+                            rebuilt=(),
+                            diagnostics=(diagnostic,),
+                            successful=False,
+                        )
+                if parsed.cache_command == "build":
+                    return maintenance_console.present_build(build_outcome, request)
+                return maintenance_console.present_rebuild(rebuild_outcome, request)
+            except ConsolePresentationFailure as error:
+                return maintenance_console.report_presentation_failure(error)
     raise AssertionError(f"Unsupported parsed command: {parsed.command}")

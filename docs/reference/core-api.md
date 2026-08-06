@@ -184,6 +184,42 @@ class ComparisonConsole:
   diagnostic once through `diagnostic` and enables progress only for an
   interactive standard-error stream when the user has not suppressed it.
 
+### `MaintenanceConsole`
+
+```python
+class MaintenanceConsole:
+    def __init__(
+        self,
+        stdout: TextIO,
+        stderr: TextIO,
+        *,
+        show_progress: bool = False,
+    ) -> None: ...
+
+    def diagnostic(self, diagnostic: Diagnostic) -> None: ...
+    def progress(self, notification: ProgressNotification) -> None: ...
+    def present_build(
+        self,
+        outcome: CacheBuildOutcome,
+        request: CacheBuildRequest,
+    ) -> int: ...
+    def present_rebuild(
+        self,
+        outcome: CacheRebuildOutcome,
+        request: CacheBuildRequest,
+    ) -> int: ...
+    def report_presentation_failure(
+        self,
+        error: ConsolePresentationFailure,
+    ) -> int: ...
+```
+
+- Shares live diagnostic, transient progress, and stream-failure behavior with
+  comparison presentation. Final summaries report resolved maintenance inputs
+  and safely completed build or rebuild counts without replaying diagnostics.
+- Complete successful outcomes return zero even with warnings. Incomplete or
+  cancelled outcomes still produce a summary and return one.
+
 ## deepface_adapter.py
 
 ### `DeepFaceRecognition`
@@ -481,3 +517,6 @@ def main(
 - Shared application entry point used by the installed `faceledger` launcher
   and `python -m faceledger`. Optional streams and recognition adapter support
   embedding and deterministic tests without changing command syntax.
+- Dispatches comparison and nested selected-model `cache build` and
+  `cache rebuild` commands. CLI model spelling is lowercase; maintenance roots
+  are resolved before requests are passed to the core operations.
