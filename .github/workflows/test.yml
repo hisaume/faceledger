@@ -15,8 +15,4 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Sync locked environment (for check_distribution.py)
-        run: uv sync --locked
-
       - run: ./scripts/check.sh
-      

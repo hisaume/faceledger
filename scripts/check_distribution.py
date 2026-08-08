@@ -155,7 +155,6 @@ def main() -> None:
             (
                 "uv",
                 "build",
-                "--offline",
                 "--no-progress",
                 "--out-dir",
                 str(distribution_directory),
@@ -202,7 +201,6 @@ def main() -> None:
                 "pip",
                 "install",
                 "--quiet",
-                "--offline",
                 "--strict",
                 "--python",
                 str(python),
