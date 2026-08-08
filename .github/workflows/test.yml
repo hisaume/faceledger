@@ -16,4 +16,3 @@ jobs:
           enable-cache: true
 
       - run: ./scripts/check.sh
-      
