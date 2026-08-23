@@ -30,3 +30,8 @@ build/
 dist/
 *.egg-info/
 pip-wheel-metadata/
+temp/
+run
+compare
+build
+rebuild

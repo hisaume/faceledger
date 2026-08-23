@@ -123,6 +123,19 @@ metadata, status, counts, and diagnostics without candidate matches or progress.
 The two destinations must differ, may overwrite regular files, and require
 existing parent directories.
 
+## Scan Target (TARGET_ROOT)
+
+Expected face files at a glance:
+
+- Name individual face files `name.face0.jpg` through `name.face9.jpg`. JPEG, PNG, and static WebP are supported.
+- Without `folder.jpg` in a folder, each numbered face file is treated as a separate identity.
+- Add an exact lowercase `folder.jpg` to mark a folder as one named person. In such case:
+    - All recognized face files are combined into one identity.
+    - `folder0.jpg` through `folder9.jpg` are recognized as additional images.
+    - Supports JPEG only, but is case-insensitive except the anchor `folder.jpg`.
+    - `Folder.JPG`, `folder.png`, and similar names do not mark a named-person folder.
+- Extension case does not matter. `.png`, `.PNG`, and `.pNg` are all recognized equally.
+
 ## Operation boundary
 
 Application code calls these public operations and their request objects:
