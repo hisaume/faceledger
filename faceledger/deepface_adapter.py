@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 from collections.abc import Callable, Sequence
@@ -16,6 +17,30 @@ _MODEL_ASSET_NAMES = {
     "ArcFace": "arcface_weights.h5",
 }
 _DETECTOR_ASSET_NAME = "retinaface.h5"
+_TENSORFLOW_LOGGER_NAME = "tensorflow"
+_TF_KERAS_LEGACY_LOSS_WARNING = (
+    "The name tf.losses.sparse_softmax_cross_entropy is deprecated."
+)
+
+
+class _TfKerasLegacyLossWarningFilter(logging.Filter):
+    """Exclude the known tf-keras legacy-loss deprecation warning."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return _TF_KERAS_LEGACY_LOSS_WARNING not in record.getMessage()
+
+
+def _configure_deepface_runtime() -> None:
+    """Set quiet CPU defaults before DeepFace can import TensorFlow."""
+
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+    tensorflow_logger = logging.getLogger(_TENSORFLOW_LOGGER_NAME)
+    if not any(
+        isinstance(log_filter, _TfKerasLegacyLossWarningFilter)
+        for log_filter in tensorflow_logger.filters
+    ):
+        tensorflow_logger.addFilter(_TfKerasLegacyLossWarningFilter())
 
 
 class DeepFaceRecognition:
@@ -39,9 +64,7 @@ class DeepFaceRecognition:
                 self._announce_missing_asset(asset_path)
                 self._announced_assets.add(asset_path)
 
-        # DeepFace imports TensorFlow. Fix its device visibility before that import
-        # so this version-one runtime remains CPU-only.
-        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+        _configure_deepface_runtime()
         try:
             from deepface import DeepFace  # type: ignore[import-untyped]
 

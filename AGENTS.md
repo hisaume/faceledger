@@ -165,7 +165,7 @@ This repository uses a single-context domain-documentation layout. See `docs/age
     The files `faceledger-v1.md` and `faceledger-v1-model-scope-amendment.md` (in that chronological order) under `docs/specs/` document the original **core functionality** only. Treat those specifications as historical design references only.
 
     Treat `faceledger-v1-cli.md` as the primary specification.
-    Also, `docs/reference/core-api.md` provides a good overview of the core files.
+    Also, `docs/reference/core-api.md` provides an overview of the core files.
 
 ## General Notes
 

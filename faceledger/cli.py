@@ -229,6 +229,7 @@ def main(
             return exit_status.code if isinstance(exit_status.code, int) else 1
 
         if parsed.command == "compare":
+            # Reporting system
             console = ComparisonConsole(
                 output,
                 diagnostics,

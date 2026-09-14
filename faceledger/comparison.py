@@ -134,8 +134,19 @@ def _is_recognized_folder_image(path: Path) -> bool:
         return True
     suffix = path.suffix.lower()
     stem = path.stem
-    if suffix == ".jpg" and len(stem) == 7:
-        return stem.startswith("folder") and stem[-1].isdigit()
+
+    # Catch folder[0-9].jpg:
+    # - Needs jpg extension
+    # - Needs 7 letters e.g. "folder5.jpg" has 7 letters in the stem
+    # - First 6 letters must be "folder"
+    # - Last letter must be a digit 0-9
+    if (
+        suffix == ".jpg"
+        and len(stem) == 7
+        and stem.startswith("folder")
+        and stem[6] in "0123456789"
+    ):
+        return True
     return _is_numbered_face_image(path)
 
 
@@ -631,6 +642,10 @@ def compare(
             )
 
     discovered_identities: list[tuple[Path, Embedding]] = []
+
+    # Directory crawling happens below, in _target_folder_views
+    # which yields each target folder and its regular files.
+
     for target_folder, regular_entries in _target_folder_views(
         target_root,
         recursive=not request.single_target_folder,
