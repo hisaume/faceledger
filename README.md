@@ -23,11 +23,41 @@ qualification passed on Ubuntu 26.04 LTS, Debian 13, Fedora 44, and a pinned
 Arch 2026-07-26 image. OpenCV also needs distribution-native GLib and OpenGL
 runtime libraries:
 
-| Distribution family | Required packages |
-| --- | --- |
+| Distribution family      | Required packages        |
+| ------------------------ | ------------------------ |
 | Ubuntu 26.04 / Debian 13 | `libgl1 libglib2.0-0t64` |
-| Fedora 44 | `glib2 libglvnd-glx` |
-| Arch | `glib2 libglvnd` |
+| Fedora 44                | `glib2 libglvnd-glx`     |
+| Arch                     | `glib2 libglvnd`         |
+
+## TensorFlow runtime configuration
+
+Faceledger defaults to CPU execution by setting `CUDA_VISIBLE_DEVICES=-1` when
+the caller has not already selected a value. A caller may select CUDA devices
+using TensorFlow's native environment variable before starting Faceledger:
+
+```console
+CUDA_VISIBLE_DEVICES=0 uv run --locked faceledger compare SOURCE TARGET_ROOT
+```
+
+This is a best-effort, unqualified override. Faceledger makes no GPU support,
+performance, output-compatibility, or vector-cache compatibility claim; its
+release qualification remains CPU-only and deliberately forces
+`CUDA_VISIBLE_DEVICES=-1`.
+
+Faceledger also defaults `TF_CPP_MIN_LOG_LEVEL=3` before DeepFace imports
+TensorFlow, reducing routine TensorFlow output such as CPU-feature notices and
+failed CUDA initialization on CPU-only systems. To restore TensorFlow's native
+startup diagnostics while troubleshooting, set the variable before launch:
+
+```console
+TF_CPP_MIN_LOG_LEVEL=0 uv run --locked faceledger compare SOURCE TARGET_ROOT
+```
+
+The known `tf.losses.sparse_softmax_cross_entropy` deprecation warning remains
+hidden in both modes. Some TensorFlow bootstrap lines emitted before its native
+logger initializes can still appear. Faceledger does not set
+`TF_ENABLE_ONEDNN_OPTS`, because disabling oneDNN changes TensorFlow execution
+instead of merely reducing output.
 
 ## Install
 
@@ -80,10 +110,10 @@ complete `TARGET_ROOT` hierarchy by default; `--no-recursive` limits it to the
 root identity. Cache maintenance changes only the selected root by default;
 `--recursive` deliberately includes descendant identities.
 
-| CLI model | Recognition model | Default cosine-distance threshold |
-| --- | --- | --- |
-| `facenet512` | Facenet512 | 0.30 |
-| `arcface` | ArcFace | 0.68 |
+| CLI model    | Recognition model | Default cosine-distance threshold |
+| ------------ | ----------------- | --------------------------------- |
+| `facenet512` | Facenet512        | 0.30                              |
+| `arcface`    | ArcFace           | 0.68                              |
 
 Facenet512 is the default. Comparison accepts a finite `--threshold` override
 from 0 through 2 inclusive. Lower distances are closer; results at or below the
@@ -106,12 +136,12 @@ diagnostics, warning summaries, progress, and trash recovery locations use
 standard error. Progress appears only on an interactive terminal and can be
 disabled with `--no-progress`. Process statuses are:
 
-| Status | Meaning |
-| --- | --- |
-| 0 | Completed success, including warnings, no matches, and maintenance no-ops |
-| 1 | Valid command with validation, operation, output, or unexpected failure |
-| 2 | Command grammar, choice, threshold, or conflicting-option error |
-| 130 | User cancellation |
+| Status | Meaning                                                                   |
+| ------ | ------------------------------------------------------------------------- |
+| 0      | Completed success, including warnings, no matches, and maintenance no-ops |
+| 1      | Valid command with validation, operation, output, or unexpected failure   |
+| 2      | Command grammar, choice, threshold, or conflicting-option error           |
+| 130    | User cancellation                                                         |
 
 Ctrl+C requests cancellation at the next safe item boundary. A cancelled
 comparison emits no partial candidates or result artifact; completed maintenance
@@ -130,10 +160,10 @@ Expected face files at a glance:
 - Name individual face files `name.face0.jpg` through `name.face9.jpg`. JPEG, PNG, and static WebP are supported.
 - Without `folder.jpg` in a folder, each numbered face file is treated as a separate identity.
 - Add an exact lowercase `folder.jpg` to mark a folder as one named person. In such case:
-    - All recognized face files are combined into one identity.
-    - `folder0.jpg` through `folder9.jpg` are recognized as additional images.
-    - Supports JPEG only, but is case-insensitive except the anchor `folder.jpg`.
-    - `Folder.JPG`, `folder.png`, and similar names do not mark a named-person folder.
+  - All recognized face files are combined into one identity.
+  - `folder0.jpg` through `folder9.jpg` are recognized as additional images.
+  - Supports JPEG only, and case-sensitive.
+  - `Folder.JPG`, `folder.png`, and similar names do not mark a named-person folder.
 - Extension case does not matter. `.png`, `.PNG`, and `.pNg` are all recognized equally.
 
 ## Operation boundary

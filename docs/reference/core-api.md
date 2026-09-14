@@ -246,9 +246,10 @@ class DeepFaceRecognition:
     ) -> Sequence[float]: ...
 ```
 
-- Concrete `RecognitionAdapter` used by default. It isolates DeepFace, locks
-  recognition to the selected CPU profile, validates its output, and announces
-  missing dependency assets before DeepFace may acquire them.
+- Concrete `RecognitionAdapter` used by default. It isolates DeepFace, uses
+  CPU by default while honoring caller-selected CUDA visibility as an
+  unqualified override, validates output, and announces missing dependency
+  assets before DeepFace may acquire them.
 
 ## maintenance.py
 

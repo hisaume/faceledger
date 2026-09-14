@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import tempfile
@@ -7,6 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from faceledger.comparison import ComparisonRequest, Diagnostic, compare
+from faceledger.deepface_adapter import (
+    _configure_deepface_runtime,
+    _TfKerasLegacyLossWarningFilter,
+)
 
 MODEL_ASSETS = {
     "Facenet512": "facenet512_weights.h5",
@@ -45,7 +50,7 @@ def _comparison_paths(root: Path) -> tuple[Path, Path]:
 
 
 class DeepFaceAdapterTests(unittest.TestCase):
-    def test_public_comparison_uses_the_selected_fixed_cpu_profile(self) -> None:
+    def test_public_comparison_uses_the_selected_cpu_default_profile(self) -> None:
         for model_name in MODEL_ASSETS:
             with self.subTest(model_name=model_name):
                 with tempfile.TemporaryDirectory() as temporary_directory:
@@ -63,12 +68,14 @@ class DeepFaceAdapterTests(unittest.TestCase):
                         self.assertIs(arguments["enforce_detection"], True)
                         self.assertIs(arguments["align"], True)
                         self.assertEqual(os.environ["CUDA_VISIBLE_DEVICES"], "-1")
+                        self.assertEqual(os.environ["TF_CPP_MIN_LOG_LEVEL"], "3")
                         return [{"embedding": [1.0] + [0.0] * 511}]
 
                     with (
                         patch.dict(
                             os.environ,
                             {"DEEPFACE_HOME": str(deepface_home)},
+                            clear=True,
                         ),
                         patch.dict(
                             sys.modules,
@@ -88,6 +95,75 @@ class DeepFaceAdapterTests(unittest.TestCase):
                 self.assertEqual(len(outcome.matches), 1)
                 self.assertEqual(outcome.matches[0].identity_path, Path("."))
                 self.assertEqual(outcome.matches[0].cosine_distance, 0.0)
+
+    def test_preserves_caller_selected_cuda_devices_and_native_log_level(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source, target_root = _comparison_paths(root)
+            deepface_home = root / "deepface-home"
+            _install_assets(deepface_home, "Facenet512")
+
+            def represent(**_arguments: object) -> list[dict[str, object]]:
+                self.assertEqual(os.environ["CUDA_VISIBLE_DEVICES"], "0,1")
+                self.assertEqual(os.environ["TF_CPP_MIN_LOG_LEVEL"], "0")
+                return [{"embedding": [1.0] + [0.0] * 511}]
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "CUDA_VISIBLE_DEVICES": "0,1",
+                        "DEEPFACE_HOME": str(deepface_home),
+                        "TF_CPP_MIN_LOG_LEVEL": "0",
+                    },
+                    clear=True,
+                ),
+                patch.dict(
+                    sys.modules,
+                    {"deepface": _deepface_module(represent)},
+                ),
+            ):
+                outcome = compare(
+                    ComparisonRequest(
+                        source=source,
+                        target_root=target_root,
+                        reuse_cache=False,
+                    )
+                )
+
+        self.assertTrue(outcome.successful)
+
+    def test_filters_only_the_known_tf_keras_legacy_loss_warning(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            _configure_deepface_runtime()
+
+        tensorflow_logger = logging.getLogger("tensorflow")
+        filters = [
+            log_filter
+            for log_filter in tensorflow_logger.filters
+            if isinstance(log_filter, _TfKerasLegacyLossWarningFilter)
+        ]
+        self.assertEqual(len(filters), 1)
+        known_warning = logging.LogRecord(
+            "tensorflow",
+            logging.WARNING,
+            __file__,
+            1,
+            "The name tf.losses.sparse_softmax_cross_entropy is deprecated.",
+            (),
+            None,
+        )
+        unrelated_warning = logging.LogRecord(
+            "tensorflow",
+            logging.WARNING,
+            __file__,
+            1,
+            "TensorFlow reported an unrelated warning.",
+            (),
+            None,
+        )
+        self.assertFalse(filters[0].filter(known_warning))
+        self.assertTrue(filters[0].filter(unrelated_warning))
 
     def test_rejects_face_counts_and_dimensions_outside_the_profile(self) -> None:
         cases: tuple[tuple[list[dict[str, object]], str], ...] = (
