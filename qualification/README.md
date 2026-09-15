@@ -68,7 +68,28 @@ uv tool install --python 3.12.13 .
 uv tool install .
 ```
 
-Both installed Faceledger 0.5.0 and selected Python 3.12.13 on the qualification
+Both installed Faceledger 0.99.0 and selected Python 3.12.13 on the qualification
 host. The bare form may select another compatible Python 3.12 elsewhere, and a
 tool environment does not consume the project lock; the checkout plus
 `uv.lock` remains the reproducibility authority.
+
+## Supported runtime
+
+The supported v1 runtime is CPU-only glibc x86-64 Linux with:
+
+- CPython 3.12.13 managed through uv;
+- the exact dependency graph in `uv.lock`;
+- DeepFace 0.0.100 with RetinaFace detection and alignment;
+- Facenet512 (default) and ArcFace recognition; and
+- JPEG, PNG, and one-frame static WebP input.
+
+The locked TensorFlow wheel establishes a glibc 2.27 minimum. Release
+qualification passed on Ubuntu 26.04 LTS, Debian 13, Fedora 44, and a pinned
+Arch 2026-07-26 image. OpenCV also needs distribution-native GLib and OpenGL
+runtime libraries:
+
+| Distribution family      | Required packages        |
+| ------------------------ | ------------------------ |
+| Ubuntu 26.04 / Debian 13 | `libgl1 libglib2.0-0t64` |
+| Fedora 44                | `glib2 libglvnd-glx`     |
+| Arch                     | `glib2 libglvnd`         |

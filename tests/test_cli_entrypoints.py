@@ -28,7 +28,7 @@ class CliApplicationTests(unittest.TestCase):
         status = main(["--version"], stdout=stdout, stderr=stderr)
 
         self.assertEqual(status, 0)
-        self.assertEqual(stdout.getvalue(), "faceledger 0.5.0\n")
+        self.assertEqual(stdout.getvalue(), "faceledger 0.99.0\n")
         self.assertEqual(stderr.getvalue(), "")
 
     def test_invocation_without_a_command_uses_argparse_status_two(self) -> None:
@@ -54,7 +54,7 @@ class CliProcessEntryPointTests(unittest.TestCase):
         )
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(completed.stdout, "faceledger 0.5.0\n")
+        self.assertEqual(completed.stdout, "faceledger 0.99.0\n")
         self.assertEqual(completed.stderr, "")
 
     def test_installed_launcher_calls_the_shared_application(self) -> None:
@@ -68,7 +68,7 @@ class CliProcessEntryPointTests(unittest.TestCase):
         )
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(completed.stdout, "faceledger 0.5.0\n")
+        self.assertEqual(completed.stdout, "faceledger 0.99.0\n")
         self.assertEqual(completed.stderr, "")
 
 

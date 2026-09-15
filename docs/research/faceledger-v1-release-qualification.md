@@ -142,7 +142,7 @@ asset-lifecycle errors. The qualification images add only the native GLib and
 OpenGL libraries needed by OpenCV; model assets remain outside the images and
 repository.
 
-Faceledger 0.5.0 now builds as a source archive and pure-Python wheel. The
+Faceledger 0.99.0 builds as a source archive and pure-Python wheel. The
 repository distribution check installs that wheel into a fresh CPython 3.12.13
 environment against dependencies exported from `uv.lock`, confirms the import
 comes from the installed package, and exercises the complete public grammar
