@@ -228,6 +228,13 @@ class CacheBuildTests(unittest.TestCase):
             self.assertTrue(outcome.successful)
             self.assertEqual(outcome.retained, (compatible_cache,))
             self.assertEqual(outcome.created, (descendant_cache,))
+            self.assertEqual(
+                [(item.category, item.path) for item in outcome.progress],
+                [
+                    ("maintenance-folder", root),
+                    ("maintenance-folder", descendant),
+                ],
+            )
             self.assertEqual(compatible_cache.read_bytes(), before)
             np.testing.assert_array_equal(
                 np.load(descendant_cache),

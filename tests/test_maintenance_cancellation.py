@@ -32,7 +32,7 @@ class RecordingRecognition:
 
 
 class MaintenanceCancellationTests(unittest.TestCase):
-    def test_cache_build_stops_before_the_next_item_and_keeps_completed_work(
+    def test_cache_build_stops_at_the_first_folder_boundary(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -67,22 +67,22 @@ class MaintenanceCancellationTests(unittest.TestCase):
             unprocessed_cache = root / "Bob.face1.jpg.facenet512.npy"
             self.assertFalse(outcome.successful)
             self.assertFalse(outcome.complete)
-            self.assertEqual(outcome.created, (first_cache,))
+            self.assertEqual(outcome.created, ())
             self.assertEqual(outcome.progress, tuple(observed))
             self.assertEqual(
                 [(item.category, item.completed_items, item.path) for item in observed],
-                [("cache-build", 1, first_face)],
+                [("maintenance-folder", 1, root)],
             )
             self.assertEqual(
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["cache-build-cancelled"],
             )
             self.assertEqual(outcome.diagnostics, tuple(observed_diagnostics))
-            self.assertEqual(recognition.calls, [first_face])
-            np.testing.assert_array_equal(np.load(first_cache), unit_vector(0))
+            self.assertEqual(recognition.calls, [])
+            self.assertFalse(first_cache.exists())
             self.assertFalse(unprocessed_cache.exists())
 
-    def test_cache_rebuild_stops_before_the_next_item_and_keeps_completed_work(
+    def test_cache_rebuild_stops_at_the_first_folder_boundary(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -91,6 +91,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
             first_face.write_bytes(b"first")
             first_cache = root / "Alice.face0.jpg.facenet512.npy"
             np.save(first_cache, np.asarray(unit_vector(2)))
+            first_bytes = first_cache.read_bytes()
             unprocessed_face = root / "Bob.face1.jpg"
             unprocessed_face.write_bytes(b"second")
             unprocessed_cache = root / "Bob.face1.jpg.facenet512.npy"
@@ -120,19 +121,19 @@ class MaintenanceCancellationTests(unittest.TestCase):
 
             self.assertFalse(outcome.successful)
             self.assertFalse(outcome.complete)
-            self.assertEqual(outcome.rebuilt, (first_cache,))
+            self.assertEqual(outcome.rebuilt, ())
             self.assertEqual(outcome.progress, tuple(observed))
             self.assertEqual(
                 [(item.category, item.completed_items, item.path) for item in observed],
-                [("cache-rebuild", 1, first_face)],
+                [("maintenance-folder", 1, root)],
             )
             self.assertEqual(
                 [diagnostic.code for diagnostic in outcome.diagnostics],
                 ["cache-rebuild-cancelled"],
             )
             self.assertEqual(outcome.diagnostics, tuple(observed_diagnostics))
-            self.assertEqual(recognition.calls, [first_face])
-            np.testing.assert_array_equal(np.load(first_cache), unit_vector(0))
+            self.assertEqual(recognition.calls, [])
+            self.assertEqual(first_cache.read_bytes(), first_bytes)
             self.assertEqual(unprocessed_cache.read_bytes(), unprocessed_bytes)
 
     def test_trash_cancellation_keeps_moved_and_planned_manifest_states(
@@ -154,7 +155,8 @@ class MaintenanceCancellationTests(unittest.TestCase):
 
             def observe(notification: ProgressNotification) -> None:
                 observed.append(notification)
-                cancellation["requested"] = True
+                if notification.category == "trash":
+                    cancellation["requested"] = True
 
             with patch.dict(
                 os.environ,
@@ -178,7 +180,10 @@ class MaintenanceCancellationTests(unittest.TestCase):
             self.assertEqual(outcome.progress, tuple(observed))
             self.assertEqual(
                 [(item.category, item.completed_items, item.path) for item in observed],
-                [("trash", 1, first_cache)],
+                [
+                    ("trash-folder", 1, root),
+                    ("trash", 2, first_cache),
+                ],
             )
             self.assertEqual(
                 [diagnostic.code for diagnostic in outcome.diagnostics],

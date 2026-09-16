@@ -125,6 +125,7 @@ def _discover_cache_entries(
     suffix: str,
     recursive: bool,
     diagnostics: list[Diagnostic],
+    on_folder_scanned: Callable[[Path], None] | None = None,
 ) -> tuple[Path, ...]:
     """Discover exact-model caches without following filesystem symlinks."""
 
@@ -145,6 +146,9 @@ def _discover_cache_entries(
                 )
             )
             continue
+        # Announce a folder only after its entries are available.
+        if on_folder_scanned is not None:
+            on_folder_scanned(folder)
         children: list[Path] = []
         for path in entries:
             try:
@@ -234,11 +238,26 @@ def trash_vector_cache(
     profile = VECTOR_PROFILES[request.model_name]
     suffix = f".{profile.cache_slug}.npy"
     progress: list[ProgressNotification] = []
+
+    def emit_folder_progress(folder: Path) -> None:
+        """Publish a successfully listed folder during cache discovery."""
+
+        notification = ProgressNotification(
+            category="trash-folder",
+            completed_items=len(progress) + 1,
+            path=folder,
+            message=f"Scanning: {folder}",
+        )
+        progress.append(notification)
+        if on_progress is not None:
+            on_progress(notification)
+
     selected = _discover_cache_entries(
         root,
         suffix,
         recursive=request.recursive,
         diagnostics=diagnostics,
+        on_folder_scanned=emit_folder_progress,
     )
     if not selected:
         return TrashOutcome(

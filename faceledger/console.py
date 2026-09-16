@@ -130,6 +130,13 @@ class ComparisonConsole(_LiveConsole):
 class MaintenanceConsole(_LiveConsole):
     """Present one cache-maintenance run and its safely completed counts."""
 
+    def _progress_text(self, notification: ProgressNotification) -> str:
+        """Use semantic text for specialised maintenance notifications."""
+
+        if notification.category in {"maintenance-folder", "trash-folder", "trash"}:
+            return notification.message
+        return super()._progress_text(notification)
+
     @staticmethod
     def _status(*, successful: bool, complete: bool) -> str:
         """Derive the public maintenance status from the CORE outcome."""
