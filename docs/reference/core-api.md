@@ -111,8 +111,9 @@ class ProgressNotification:
     message: str
 ```
 
-- Reports one completed work item independently of results and diagnostics.
-  `completed_items` is a count so far, not a percentage or total estimate.
+- Reports a target folder as comparison begins processing it, independently of
+  results and diagnostics. `completed_items` is the count of target folders
+  announced so far, not a percentage or total estimate.
 
 ### `ComparisonOutcome`
 

@@ -87,12 +87,12 @@ rebuild, and model-specific recoverable trash.
   - `cache build` creates missing entries, replaces structurally invalid entries,
     and retains compatible ones.
   - `cache rebuild` refreshes every entry.
-  - Structural compatibility is not a freshness or provenance guarantee, so rebuild
-    after source-image changes whenever freshness matters.
+  - A compatible cache file can still be out of date, if you change a source
+    image. Run `cache rebuild` if in doubt.
   - #### Delete cache:
-    - `cache trash` _moves_ exact selected-model entries to manifest-backed recovery storage below the XDG application data root. It prints the recovery directory and manifest on standard error. V1 has no automatic restore or permanent-delete command: inspect the manifest and recover or retain files manually.
-    - To remove trashed files permanently, _delete the relevant trash folder manually_;
-      it is typically under `~/.local/share/faceledger/trash/`.
+    - `cache trash` _moves_ selected-model files to manifest-backed recovery folder below the XDG application data root (typically `~/.local/share/faceledger/trash/`). It prints the recovery directory and manifest on standard error.
+    - V1 has no automatic restore or permanent-delete command: inspect the manifest and recover or retain files manually.
+    - To remove trashed files permanently, _DELETE THE TRASH FOLDER MANUALLY_.
 
 - ### Output & Results
 

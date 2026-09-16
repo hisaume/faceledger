@@ -22,7 +22,9 @@ class RecordingRecognition:
 
 
 class ComparisonCancellationTests(unittest.TestCase):
-    def test_uncached_work_emits_typed_progress_separate_from_results(self) -> None:
+    def test_target_folder_work_emits_typed_progress_separate_from_results(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             source = root / "source.jpg"
@@ -44,9 +46,10 @@ class ComparisonCancellationTests(unittest.TestCase):
         self.assertEqual(outcome.progress, tuple(observed))
         self.assertEqual(
             [(item.category, item.path) for item in observed],
-            [("source", source), ("target", target)],
+            [("target-folder", target_root)],
         )
-        self.assertEqual([item.completed_items for item in observed], [1, 2])
+        self.assertEqual([item.completed_items for item in observed], [1])
+        self.assertEqual(observed[0].message, f"Processing: {target_root}")
         self.assertEqual(outcome.diagnostics, ())
         self.assertEqual(len(outcome.matches), 1)
 
@@ -73,7 +76,7 @@ class ComparisonCancellationTests(unittest.TestCase):
             cancellation = {"requested": False}
 
             def observe(notification: ProgressNotification) -> None:
-                if notification.category == "target":
+                if notification.category == "target-folder":
                     cancellation["requested"] = True
 
             outcome = compare(
@@ -89,13 +92,13 @@ class ComparisonCancellationTests(unittest.TestCase):
         self.assertFalse(outcome.successful)
         self.assertFalse(outcome.complete)
         self.assertEqual(outcome.matches, ())
-        self.assertEqual(outcome.target_identities_compared, 1)
+        self.assertEqual(outcome.target_identities_compared, 0)
         self.assertEqual(outcome.diagnostics[-1].severity, "info")
         self.assertEqual(outcome.diagnostics[-1].category, "operation")
         self.assertEqual(outcome.diagnostics[-1].code, "comparison-cancelled")
         self.assertEqual(
             recognition.calls,
-            [source, first_target],
+            [source],
         )
         self.assertEqual(render_matches(outcome), "")
         self.assertEqual(status, 1)

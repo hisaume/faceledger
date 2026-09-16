@@ -485,20 +485,9 @@ def compare(
         recognition = DeepFaceRecognition(announce_missing_asset)
 
     def calculate_vector(path: Path, category: str) -> Embedding:
-        """Calculate an uncached vector and emit its completion progress."""
+        """Calculate an uncached vector for a source or target image."""
 
-        try:
-            return tuple(recognition.vector_for(path, profile))
-        finally:
-            notification = ProgressNotification(
-                category=category,
-                completed_items=len(progress) + 1,
-                path=path,
-                message=f"Completed uncached {category} image: {path}",
-            )
-            progress.append(notification)
-            if on_progress is not None:
-                on_progress(notification)
+        return tuple(recognition.vector_for(path, profile))
 
     def asset_failure_outcome(error: AssetAcquisitionFailure) -> ComparisonOutcome:
         """Translate asset failure into the comparison operation contract."""
@@ -653,11 +642,25 @@ def compare(
     ):
         if is_cancelled():
             return cancelled_outcome(len(discovered_identities))
+
+        # Emit progress for each target folder
+        notification = ProgressNotification(
+            category="target-folder",
+            completed_items=len(progress) + 1,
+            path=target_folder,
+            message=f"Processing: {target_folder}",
+        )
+        progress.append(notification)
+        if on_progress is not None:
+            on_progress(notification)
+
+        # Find the folder.jpg image in the target folder
         target_image = next(
             (path for path in regular_entries if path.name == "folder.jpg"),
             None,
         )
         if target_image is not None:
+            # folder.jpg exists (a one-identity folder)
             if source_folder == target_folder or (
                 source is not None and source.parent == target_folder
             ):
@@ -707,6 +710,7 @@ def compare(
                 )
             continue
 
+        # Process regular face images in the target folder
         for path in regular_entries:
             if is_cancelled():
                 return cancelled_outcome(len(discovered_identities))

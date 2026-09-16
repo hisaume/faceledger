@@ -276,8 +276,10 @@ def _qualify_public_operations(images: dict[str, Path]) -> list[dict[str, Any]]:
                         )
                         _require(
                             len(cached_comparison.progress) == 1
-                            and cached_comparison.progress[0].category == "source",
-                            "cached comparison recalculated the target vector",
+                            and cached_comparison.progress[0].category
+                            == "target-folder"
+                            and cached_comparison.progress[0].path == target_root,
+                            "cached comparison did not announce the processed target root",
                         )
                         check["acquisition_notices"].extend(
                             _acquisition_notices(cached_comparison.diagnostics)

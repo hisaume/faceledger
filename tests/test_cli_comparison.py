@@ -781,13 +781,12 @@ class SourceFolderComparisonCliTests(unittest.TestCase):
 
             self.assertEqual(status, 0)
             progress = stderr.getvalue()
-            self.assertIn(f"Completed 1: {source}", progress)
-            self.assertIn(f"Completed 2: {target}", progress)
+            self.assertIn(f"Processing: {target_root}", progress)
             self.assertIn("\r", progress)
             self.assertTrue(progress.endswith("\r"))
             self.assertNotIn("%", progress)
             self.assertNotIn("ETA", progress)
-            self.assertNotIn("Completed", stdout.getvalue())
+            self.assertNotIn("Processing:", stdout.getvalue())
 
     def test_no_progress_suppresses_interactive_progress(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
