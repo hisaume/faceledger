@@ -111,10 +111,10 @@ class ProgressNotification:
     message: str
 ```
 
-- Reports comparison targets, build/rebuild maintenance folders, and trash
-  discovery folders as work begins, plus trash move attempts, independently of
-  results and diagnostics. `completed_items` is the count of notifications so
-  far, not a percentage or total estimate.
+- Reports comparison targets and build/rebuild maintenance folders as their
+  processing begins, independently of results and diagnostics.
+  `completed_items` is the count of folders announced so far, not a percentage
+  or total estimate.
 
 ### `ComparisonOutcome`
 
@@ -386,8 +386,8 @@ def trash_vector_cache(
 - Moves exact selected-model cache entries into XDG application trash and
   records every planned, moved, or failed item in a recovery manifest. An empty
   selection succeeds without creating a trash action.
-- Callbacks stream retained diagnostics, folder-scanning progress, and progress
-  after each durable move attempt. Callback exceptions propagate.
+- Callbacks stream retained diagnostics and completed-item progress. Callback
+  exceptions propagate.
 
 ## presentation.py
 

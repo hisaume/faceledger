@@ -133,7 +133,7 @@ class MaintenanceConsole(_LiveConsole):
     def _progress_text(self, notification: ProgressNotification) -> str:
         """Use semantic text for specialised maintenance notifications."""
 
-        if notification.category in {"maintenance-folder", "trash-folder", "trash"}:
+        if notification.category == "maintenance-folder":
             return notification.message
         return super()._progress_text(notification)
 

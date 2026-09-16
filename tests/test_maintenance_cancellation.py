@@ -155,8 +155,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
 
             def observe(notification: ProgressNotification) -> None:
                 observed.append(notification)
-                if notification.category == "trash":
-                    cancellation["requested"] = True
+                cancellation["requested"] = True
 
             with patch.dict(
                 os.environ,
@@ -180,10 +179,7 @@ class MaintenanceCancellationTests(unittest.TestCase):
             self.assertEqual(outcome.progress, tuple(observed))
             self.assertEqual(
                 [(item.category, item.completed_items, item.path) for item in observed],
-                [
-                    ("trash-folder", 1, root),
-                    ("trash", 2, first_cache),
-                ],
+                [("trash", 1, first_cache)],
             )
             self.assertEqual(
                 [diagnostic.code for diagnostic in outcome.diagnostics],

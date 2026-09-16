@@ -366,7 +366,7 @@ class CacheTrashCliTests(unittest.TestCase):
 
             self.assertEqual(status, 0)
             transcript = stderr.getvalue()
-            progress = f"Completed trash entry: {cache}"
+            progress = f"Completed 1: {cache}"
             recovery_start = transcript.index("Recovery directory:")
             self.assertIn(f"\r{progress}", transcript)
             self.assertEqual(

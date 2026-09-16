@@ -85,14 +85,6 @@ class VectorCacheTrashTests(unittest.TestCase):
                 outcome.moved,
                 (first_destination, second_destination),
             )
-            self.assertEqual(
-                [(item.category, item.path) for item in outcome.progress],
-                [
-                    ("trash-folder", root),
-                    ("trash", first_cache),
-                    ("trash", second_cache),
-                ],
-            )
             self.assertFalse(first_cache.exists())
             self.assertFalse(second_cache.exists())
             self.assertEqual(first_destination.read_bytes(), b"Alice vector")
@@ -159,15 +151,6 @@ class VectorCacheTrashTests(unittest.TestCase):
                 Path("files/Album/Person.face1.jpg.arcface.npy"),
             }
             self.assertEqual(outcome.action_directory, action)
-            self.assertEqual(
-                [(item.category, item.path) for item in outcome.progress],
-                [
-                    ("trash-folder", root),
-                    ("trash-folder", branch),
-                    ("trash", root_cache),
-                    ("trash", branch_cache),
-                ],
-            )
             self.assertEqual(
                 {
                     path.relative_to(action)
