@@ -378,7 +378,7 @@ class StandaloneComparisonTests(unittest.TestCase):
             self.assertEqual(outcome.diagnostics[0].path, existing_cache)
             self.assertEqual(
                 [(item.category, item.path) for item in outcome.progress],
-                [("source", source), ("target", target_image)],
+                [("target-folder", target_root)],
             )
             self.assertEqual(snapshot_files(root), before)
 
@@ -1274,6 +1274,10 @@ class VectorCacheReuseTests(unittest.TestCase):
                 ),
             )
             self.assertEqual(outcome.diagnostics, ())
+            self.assertEqual(
+                [(item.category, item.path) for item in outcome.progress],
+                [("target-folder", target_root)],
+            )
             self.assertEqual(snapshot_files(root), before)
 
     def test_reuses_folder_aggregate_caches_associated_with_the_anchors(self) -> None:

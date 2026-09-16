@@ -254,20 +254,9 @@ def build_vector_cache(
         )
 
     def calculate_vector(path: Path) -> Embedding:
-        """Validate one recognition result and emit its completion progress."""
+        """Validate one recognition result for cache construction."""
 
-        try:
-            return _validated_vector(recognition.vector_for(path, profile), profile)
-        finally:
-            notification = ProgressNotification(
-                category="cache-build",
-                completed_items=len(progress) + 1,
-                path=path,
-                message=f"Completed cache-build image: {path}",
-            )
-            progress.append(notification)
-            if on_progress is not None:
-                on_progress(notification)
+        return _validated_vector(recognition.vector_for(path, profile), profile)
 
     def is_cancelled() -> bool:
         return cancellation_requested is not None and cancellation_requested()
@@ -296,13 +285,23 @@ def build_vector_cache(
     if is_cancelled():
         return cancelled_outcome()
 
-    for _folder, files in _maintenance_folder_views(
+    for folder, files in _maintenance_folder_views(
         root,
         recursive=request.recursive,
         diagnostics=diagnostics,
     ):
         if is_cancelled():
             return cancelled_outcome()
+        # Report this listed folder before cache or recognition work.
+        notification = ProgressNotification(
+            category="maintenance-folder",
+            completed_items=len(progress) + 1,
+            path=folder,
+            message=f"Processing: {folder}",
+        )
+        progress.append(notification)
+        if on_progress is not None:
+            on_progress(notification)
         anchor = next((path for path in files if path.name == "folder.jpg"), None)
         if anchor is not None:
             cache_path = _cache_path(anchor, profile)
@@ -551,20 +550,9 @@ def rebuild_vector_cache(
         )
 
     def calculate_vector(path: Path) -> Embedding:
-        """Validate one recognition result and emit its completion progress."""
+        """Validate one recognition result for cache replacement."""
 
-        try:
-            return _validated_vector(recognition.vector_for(path, profile), profile)
-        finally:
-            notification = ProgressNotification(
-                category="cache-rebuild",
-                completed_items=len(progress) + 1,
-                path=path,
-                message=f"Completed cache-rebuild image: {path}",
-            )
-            progress.append(notification)
-            if on_progress is not None:
-                on_progress(notification)
+        return _validated_vector(recognition.vector_for(path, profile), profile)
 
     def is_cancelled() -> bool:
         return cancellation_requested is not None and cancellation_requested()
@@ -592,13 +580,23 @@ def rebuild_vector_cache(
     if is_cancelled():
         return cancelled_outcome()
 
-    for _folder, files in _maintenance_folder_views(
+    for folder, files in _maintenance_folder_views(
         root,
         recursive=request.recursive,
         diagnostics=diagnostics,
     ):
         if is_cancelled():
             return cancelled_outcome()
+        # Report this listed folder before cache or recognition work.
+        notification = ProgressNotification(
+            category="maintenance-folder",
+            completed_items=len(progress) + 1,
+            path=folder,
+            message=f"Processing: {folder}",
+        )
+        progress.append(notification)
+        if on_progress is not None:
+            on_progress(notification)
         anchor = next((path for path in files if path.name == "folder.jpg"), None)
         if anchor is not None:
             cache_path = _cache_path(anchor, profile)

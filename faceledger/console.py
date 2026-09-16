@@ -55,14 +55,19 @@ class _LiveConsole:
         self._write(self._stderr, render_diagnostic(diagnostic))
 
     def progress(self, notification: ProgressNotification) -> None:
-        """Replace the transient completed-count and current-path line."""
+        """Replace the transient progress line for one notification."""
 
         if not self._show_progress:
             return
         self._clear_progress()
-        text = f"Completed {notification.completed_items}: {notification.path}"
+        text = self._progress_text(notification)
         self._progress_width = len(text)
         self._write(self._stderr, f"\r{text}")
+
+    def _progress_text(self, notification: ProgressNotification) -> str:
+        """Format one operation's transient progress notification."""
+
+        return f"Completed {notification.completed_items}: {notification.path}"
 
     def _warning_count(self, diagnostics: tuple[Diagnostic, ...]) -> int:
         """Count warning diagnostics retained by one operation outcome."""
@@ -90,6 +95,11 @@ class _LiveConsole:
 
 class ComparisonConsole(_LiveConsole):
     """Present one comparison run without replaying streamed diagnostics."""
+
+    def _progress_text(self, notification: ProgressNotification) -> str:
+        """Use comparison's folder-oriented progress message verbatim."""
+
+        return notification.message
 
     def present(self, outcome: ComparisonOutcome) -> int:
         """Render final result and warning summary after live notifications."""
@@ -119,6 +129,13 @@ class ComparisonConsole(_LiveConsole):
 
 class MaintenanceConsole(_LiveConsole):
     """Present one cache-maintenance run and its safely completed counts."""
+
+    def _progress_text(self, notification: ProgressNotification) -> str:
+        """Use semantic text for specialised maintenance notifications."""
+
+        if notification.category == "maintenance-folder":
+            return notification.message
+        return super()._progress_text(notification)
 
     @staticmethod
     def _status(*, successful: bool, complete: bool) -> str:

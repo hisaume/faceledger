@@ -111,8 +111,10 @@ class ProgressNotification:
     message: str
 ```
 
-- Reports one completed work item independently of results and diagnostics.
-  `completed_items` is a count so far, not a percentage or total estimate.
+- Reports comparison targets and build/rebuild maintenance folders as their
+  processing begins, independently of results and diagnostics.
+  `completed_items` is the count of folders announced so far, not a percentage
+  or total estimate.
 
 ### `ComparisonOutcome`
 
@@ -313,8 +315,8 @@ def build_vector_cache(
 - Creates missing selected-model entries, replaces structurally invalid ones,
   and retains compatible entries. Item failures do not stop later work unless
   the operation itself cannot continue.
-- Callbacks stream retained diagnostics and completed-item progress. Callback
-  exceptions propagate.
+- Callbacks stream retained diagnostics and progress when each listed folder
+  begins processing. Callback exceptions propagate.
 
 ### `rebuild_vector_cache`
 
@@ -332,8 +334,8 @@ def rebuild_vector_cache(
 - Recalculates every in-scope selected-model cache and installs a replacement
   only after successful calculation and persistence. Completed replacements
   remain if the operation is cancelled.
-- Callbacks stream retained diagnostics and completed-item progress. Callback
-  exceptions propagate.
+- Callbacks stream retained diagnostics and progress when each listed folder
+  begins processing. Callback exceptions propagate.
 
 ## trash.py
 

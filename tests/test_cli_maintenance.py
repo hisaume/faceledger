@@ -594,7 +594,7 @@ class CacheBuildCliTests(unittest.TestCase):
 
             self.assertEqual(status, 0)
             transcript = stderr.getvalue()
-            progress = f"Completed 1: {face}"
+            progress = f"Processing: {root}"
             self.assertIn(f"\r{progress}", transcript)
             self.assertTrue(transcript.endswith(f"\r{' ' * len(progress)}\r"))
 
