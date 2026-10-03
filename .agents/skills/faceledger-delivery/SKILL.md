@@ -1,5 +1,5 @@
 ---
-name: app-delivery
+name: faceledger-delivery
 description: Use when planning, implementing, reviewing, or handing off a durable application change tracked in Beads, including shaping a feature, turning approved scope into tickets, or delivering a claimed vertical slice. Do not use for an informational question or a read-only code inspection.
 ---
 

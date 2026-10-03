@@ -1,4 +1,4 @@
-# Faceledger Beads workflow
+# Faceledger workflow
 
 ## Shape and publish work
 
