@@ -33,6 +33,7 @@ pip-wheel-metadata/
 temp/
 samples/
 run
+run_mcp_inspector.sh
 compare
 build
 rebuild
