@@ -1,12 +1,12 @@
 # Faceledger : A face-comparison CLI tool
 
-Faceledger compares one source face with a user-managed local face tree and
-returns threshold-qualified **candidate matches** ordered by cosine distance.
-A result is not a verified identity, confidence score, or accuracy claim.
+Faceledger compares one face image (source) with a local folder containing face images (targets), and returns **candidate matches** ordered by similarity. This is achieved by comparing face embeddings using cosine distance, with the threshold of your choosing.
 
-Version one provides an installable command-line application and
-presentation-neutral Python operations for comparison, cache build, cache
-rebuild, and model-specific recoverable trash.
+The result is not a verified identity, confidence score, or accuracy claim; it is merely a resemblance league-table.
+
+This version provides an installable command-line application, and Python operations for comparison, cache build, cache rebuild, and model-specific recoverable trash.
+
+It is intended for Linux, but should work on other platforms where Python is available.
 
 ## Install
 
@@ -16,29 +16,47 @@ rebuild, and model-specific recoverable trash.
 
 - ### Install the application
 
-  For a persistent launcher outside the checkout environment, the qualified local
-  tool route is:
+  A typical installation (a persistent launcher outside the checkout environment):
 
   ```console
   uv tool install --python 3.12.13 .
+  ```
+
+  Then you can check it is working:
+
+  ```console
   faceledger --version
   ```
 
-  - On first use of a recognition model, Faceledger may download its required model weights. Your images and face data remain local; Faceledger does not upload them or send telemetry. [Privacy details](#privacy-and-data-handling)
+  And display help:
 
-- Alternatively, run from the checkout environment without the persistent launcher:
+  ```console
+  faceledger --help
+  ```
+
+  - On first use of a recognition model, Faceledger may download its required model weights (which enable offline face comparison). Your images and face data remain local; Faceledger does not upload them or send telemetry. [Privacy details](#privacy-and-data-handling)
+
+- ### Alternative to a typical installation
+
+  Run directly from the checkout environment without the persistent launcher:
 
   ```console
   uv run --locked faceledger --help
   ```
 
-- _Troubleshooting_: If the locked checkout environment cannot be created, re-resolve dependencies for this checkout:
+- ### Troubleshooting
+
+  If the locked checkout environment errors or cannot be created, re-resolve dependencies for this checkout:
 
   ```console
   uv sync --python 3.12.13
   ```
 
-  This updates `uv.lock`; the resulting environment differs from the release-qualified dependency set.
+  This updates `uv.lock`; the resulting environment differs from the release-qualified dependency set. Then try again:
+
+  ```console
+  uv run --locked faceledger --help
+  ```
 
 ## Command line
 
@@ -61,7 +79,8 @@ rebuild, and model-specific recoverable trash.
 
   - `SOURCE` is one supported image or one identity folder.
   - Comparison searches the complete `TARGET_ROOT` hierarchy by default; `--no-recursive` limits it to the root identity.
-  - Cache maintenance changes only the selected root by default; `--recursive` deliberately includes descendant identities.
+  - Cache maintenance applies only to the selected root by default; `--recursive` deliberately includes descendant identities.
+  - `CTRL + C` cancels the current operation and exits gracefully.
 
 - ### Recognition Models
 
@@ -81,14 +100,14 @@ rebuild, and model-specific recoverable trash.
   ```
 
 - ### Cache Management
-  - Comparison reads compatible selected-model caches by default but never creates,
-    repairs, or removes them.
-  - `--no-cache` calculates temporary vectors instead.
-  - `cache build` creates missing entries, replaces structurally invalid entries,
-    and retains compatible ones.
-  - `cache rebuild` refreshes every entry.
-  - A compatible cache file can still be out of date, if you change a source
-    image. Run `cache rebuild` if in doubt.
+  - #### Create cache to speed up the comparison:
+    - `compare` mode uses selected-model caches by default if they exist, but you must manually create the cache with `cache` mode first.
+    - If cache does not exist, or if `--no-cache` flag is set, `compare` calculates temporary vectors instead.
+    - `cache build` creates missing entries, replaces structurally invalid entries,
+      and retains compatible ones.
+    - `cache rebuild` refreshes every entry.
+    - A compatible cache file can still be out of date, if you change a source
+      image. Run `cache rebuild` if in doubt.
   - #### Delete cache:
     - `cache trash` _moves_ selected-model files to manifest-backed recovery folder below the XDG application data root (typically `~/.local/share/faceledger/trash/`). It prints the recovery directory and manifest on standard error.
     - V1 has no automatic restore or permanent-delete command: inspect the manifest and recover or retain files manually.
@@ -96,7 +115,7 @@ rebuild, and model-specific recoverable trash.
 
 - ### Output & Results
 
-  Successful comparison results and maintenance summaries use standard output;
+  Successful comparison results and cache maintenance summaries use standard output;
   diagnostics, warning summaries, progress, and trash recovery locations use
   standard error. Progress appears only on an interactive terminal and can be
   disabled with `--no-progress`. Process statuses are:
@@ -107,16 +126,14 @@ rebuild, and model-specific recoverable trash.
   | 1      | Valid command with validation, operation, output, or unexpected failure   |
   | 2      | Command grammar, choice, threshold, or conflicting-option error           |
   | 130    | User cancellation                                                         |
+  - `Ctrl + C` requests cancellation at the next safe item boundary:
+    - A cancelled `compare` emits no partial candidates or result artifact.
+    - Completed cache management effects (build, rebuild, trash) remain, and trash keeps its manifest state.
 
-  Ctrl+C requests cancellation at the next safe item boundary. A cancelled
-  comparison emits no partial candidates or result artifact; completed maintenance
-  effects remain in place and trash keeps its manifest state.
-
-  `--result-file` writes only a successful complete comparison. `--log-file` is
-  attempted for successful, failed, and cancelled comparisons and contains
-  metadata, status, counts, and diagnostics without candidate matches or progress.
-  The two destinations must differ, may overwrite regular files, and require
-  existing parent directories.
+  - Output Files (if specified)
+    - `--result-file` writes only a successful complete comparison. `--log-file` is attempted for successful, failed, and cancelled comparisons and contains
+      metadata, status, counts, and diagnostics without candidate matches or progress.
+    - Previous output files will be overwritten if the path and filename are the same. The path must exist.
 
 ## Scan Target (TARGET_ROOT)
 
@@ -171,21 +188,13 @@ The checked-in `uv.lock` defines the release-qualified dependency graph. See
 
 ### Privacy and data handling
 
-Faceledger processes images and embeddings locally and sends no telemetry or
-uploads. Its sole permitted network activity is an announced, inbound
-dependency-managed download when a required model asset is missing. Those
-assets can then be reused offline.
+Faceledger processes images and embeddings locally and sends no telemetry or uploads. Its sole permitted network activity is an announced, inbound dependency-managed download when a required model asset is missing. Those assets can then be reused offline.
 
-Local does not mean encrypted. NPY caches and recoverable trash are sensitive
-plaintext protected only by the user's filesystem controls. Trash is stored
-under the XDG application data location with a recovery manifest; v1 neither
-permanently deletes nor automatically restores it, and retention and recovery
-are manual responsibilities.
+Its design intent is to be thin and transient; it attempts to catalogue as little as possible. No database is used or saved. The directory structure of the scan-target itself is your database.
 
-Concurrent read-only comparisons are permitted. Faceledger does not lock or
-snapshot the live face tree, so descendants changing after discovery are
-handled best-effort. Overlapping build, rebuild, or trash maintenance is not
-supported.
+Local does not mean encrypted. NPY caches and recoverable trash are sensitive plaintext protected only by the user's filesystem controls. Trash is stored under the XDG application data location with a recovery manifest; v1 neither permanently deletes nor automatically restores it, and retention and recovery are manual responsibilities.
+
+Concurrent read-only comparisons are permitted. Faceledger does not lock or snapshot the live face tree, so descendants changing after discovery are handled best-effort. Overlapping build, rebuild, or trash maintenance is not supported.
 
 ### Model assets and exclusions
 

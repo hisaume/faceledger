@@ -330,6 +330,7 @@ def compare(
 
         diagnostics.append(diagnostic)
 
+    # Model check
     if request.model_name not in VECTOR_PROFILES:
         emit_diagnostic(
             Diagnostic(
@@ -367,6 +368,8 @@ def compare(
         profile.cosine_threshold if request.threshold is None else request.threshold
     )
 
+    # Source selection check
+    # Ambiguous: Both source and source_folder are set
     if request.source is not None and request.source_folder is not None:
         emit_diagnostic(
             Diagnostic(
@@ -382,6 +385,7 @@ def compare(
             diagnostics=tuple(diagnostics),
             successful=False,
         )
+    # Missing: Neither source nor source_folder is set
     if request.source is None and request.source_folder is None:
         emit_diagnostic(
             Diagnostic(
@@ -398,11 +402,14 @@ def compare(
             successful=False,
         )
 
-    target_root = request.target_root.resolve()
+    # Checks cleared, so resolve source and source_folder
     source = request.source.resolve() if request.source is not None else None
     source_folder = (
         request.source_folder.resolve() if request.source_folder is not None else None
     )
+
+    # Target root check
+    target_root = request.target_root.resolve()
     target_root_error: OSError | None = None
     if not target_root.is_dir():
         target_root_error = NotADirectoryError(
@@ -411,6 +418,7 @@ def compare(
     else:
         try:
             with os.scandir(target_root) as entries:
+                # Check read operation actually works on the directory
                 next(entries, None)
         except OSError as error:
             target_root_error = error
@@ -429,6 +437,7 @@ def compare(
             diagnostics=tuple(diagnostics),
             successful=False,
         )
+    # Source file check
     if source is not None and not source.is_file():
         emit_diagnostic(
             Diagnostic(
@@ -444,7 +453,9 @@ def compare(
             diagnostics=tuple(diagnostics),
             successful=False,
         )
+    # If source folder is provided
     if source_folder is not None and (
+        # but source folder is not a directory or does not contain folder.jpg
         not source_folder.is_dir() or not (source_folder / "folder.jpg").is_file()
     ):
         emit_diagnostic(
@@ -465,6 +476,7 @@ def compare(
             successful=False,
         )
 
+    # DeepFace: Recognition initialization
     progress: list[ProgressNotification] = []
     if recognition is None:
         from faceledger.deepface_adapter import DeepFaceRecognition
