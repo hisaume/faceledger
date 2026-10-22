@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
@@ -41,9 +41,17 @@ mcp = MCPServer("Faceledger")
 def compare_source_to_identity_folder(
     source_image: str,
     target_folder: str,
+    model: Literal["facenet512", "arcface"] = "facenet512",
 ) -> CompareFolderResult:
     """
     Compare one source face image against one target identity folder.
+
+    Model selection defaults to `facenet512`. Use `arcface` only when the user
+    explicitly requests it.
+
+    For reference, typical cosine-distance thresholds are 0.30 for facenet512
+    and 0.68 for arcface. These values provide context only; interpreting
+    similarity or making identity judgments is beyond this tool's scope.
 
     Usage requirements:
     - `source_image` must be an image file.
@@ -58,6 +66,7 @@ def compare_source_to_identity_folder(
         ComparisonRequest(
             source=Path(source_image).expanduser(),
             target_root=Path(target_folder).expanduser(),
+            model_name={"facenet512": "Facenet512", "arcface": "ArcFace"}[model],
             single_target_folder=True,
         )
     )

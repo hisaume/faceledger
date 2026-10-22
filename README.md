@@ -82,6 +82,24 @@ It is intended for Linux, but should work on other platforms where Python is ava
   - Cache maintenance applies only to the selected root by default; `--recursive` deliberately includes descendant identities.
   - `CTRL + C` cancels the current operation and exits gracefully.
 
+- ### MCP support
+
+  Faceledger includes a local stdio MCP server for use with MCP-compatible hosts such as Codex CLI.
+
+  Configure your MCP host to launch:
+
+  ```bash
+  faceledger-mcp
+  ```
+
+  When working from the repository instead:
+
+  ```bash
+  uv run --locked faceledger-mcp
+  ```
+
+  The server exposes Faceledger comparison functionality as MCP tools, for a pair-of-image comparison workflow. When started manually, it waits for an MCP client on stdin/stdout; press `Ctrl-C` to stop it.
+
 - ### Recognition Models
 
   | CLI model    | Recognition model | Default cosine-distance threshold |
