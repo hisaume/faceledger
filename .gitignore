@@ -4,6 +4,8 @@
 RAW-NOTES/
 __pycache__/
 *.py[cod]
+.agents/
+.codex/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
